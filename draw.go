@@ -1,5 +1,5 @@
 // draw.go
-package tinytui // Package tinytui provides basic TUI building blocks.
+package tinytui
 
 import (
 	"github.com/gdamore/tcell/v2"
@@ -28,7 +28,7 @@ func Fill(screen tcell.Screen, x, y, width, height int, char rune, style Style) 
 	if width <= 0 || height <= 0 {
 		return
 	}
-	tcellStyle := style.ToTcell() // Convert to underlying tcell type
+	tcellStyle := style.ToTcell()
 	for row := y; row < y+height; row++ {
 		for col := x; col < x+width; col++ {
 			// Basic bounds check for safety, although tcell might handle it
@@ -46,7 +46,7 @@ func DrawBox(screen tcell.Screen, x, y, width, height int, style Style) {
 	if width < 2 || height < 2 {
 		return
 	}
-	tcellStyle := style.ToTcell() // Convert to underlying tcell type
+	tcellStyle := style.ToTcell()
 
 	// Draw corners
 	screen.SetContent(x, y, tcell.RuneULCorner, nil, tcellStyle)
@@ -73,7 +73,7 @@ func DrawDoubleBox(screen tcell.Screen, x, y, width, height int, style Style) {
 	if width < 2 || height < 2 {
 		return // Not enough space to draw a box
 	}
-	tcellStyle := style.ToTcell() // Convert to underlying tcell type
+	tcellStyle := style.ToTcell()
 
 	// Draw corners using defined runes
 	screen.SetContent(x, y, runeDoubleULCorner, nil, tcellStyle)

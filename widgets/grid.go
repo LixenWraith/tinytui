@@ -382,7 +382,6 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 	// If grid is empty or has no selection, cannot handle navigation/selection
 	if rows <= 0 || cols <= 0 || currentRow < 0 || currentCol < 0 {
 		g.mu.Unlock()
-		// log.Println("Grid.HandleEvent: Ignoring event, grid empty or no selection.") // Optional log
 		return false
 	}
 
@@ -463,7 +462,6 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		if app := g.App(); app != nil {
 			app.QueueRedraw() // Request redraw to show new selection/scroll
 		}
-		// log.Printf("Grid.HandleEvent: Handled navigation. New selection: (%d, %d)", g.selectedRow, g.selectedCol) // Optional log
 		return true // Navigation key consumed
 	}
 

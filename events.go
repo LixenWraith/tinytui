@@ -2,8 +2,6 @@
 package tinytui
 
 import (
-	"log"
-
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -29,7 +27,6 @@ func (a *Application) processEvent(ev tcell.Event) {
 		consumed = true
 
 	case *tcell.EventKey:
-		log.Printf("Event Loop: Key Event: %v, Mod: %v, Rune: %q. Focused: %T", event.Key(), event.Modifiers(), event.Rune(), currentFocused)
 
 		// 1. Global/Modal key bindings
 		key := event.Key()
@@ -37,11 +34,8 @@ func (a *Application) processEvent(ev tcell.Event) {
 
 		// 2. Pass to focused widget (if not consumed)
 		if !consumed && currentFocused != nil {
-			log.Printf("Event Loop: Passing key event to focused widget %T", currentFocused)
 			consumed = currentFocused.HandleEvent(event)
-			log.Printf("Event Loop: Focused widget %T consumed event: %v", currentFocused, consumed)
 		} else if !consumed && currentFocused == nil {
-			log.Println("Event Loop: Key event not consumed globally, but no widget is focused.")
 		}
 
 		// 3. Bubbling (if not consumed and focus exists)
@@ -52,9 +46,7 @@ func (a *Application) processEvent(ev tcell.Event) {
 				if currentModalRoot != nil && bubbleTarget == currentModalRoot.Parent() {
 					break
 				}
-				log.Printf("Event Loop: Bubbling key event to parent %T", bubbleTarget)
 				consumed = bubbleTarget.HandleEvent(event)
-				log.Printf("Event Loop: Bubbled widget %T consumed event: %v", bubbleTarget, consumed)
 				if consumed {
 					break
 				}
@@ -82,16 +74,13 @@ func (a *Application) processEvent(ev tcell.Event) {
 func (a *Application) handleGlobalKeys(key tcell.Key, currentRoot, currentFocused, currentModalRoot Widget) bool {
 	switch key {
 	case tcell.KeyCtrlC: // Ctrl+C always quits
-		log.Println("handleGlobalKeys: Ctrl+C detected, stopping.")
 		a.Stop()
 		return true
 
 	case tcell.KeyEscape: // Contextual Escape
 		if currentModalRoot != nil {
-			log.Println("handleGlobalKeys: Escape detected with modal, dispatching close.")
 			// Dispatch function to close modal
 			a.Dispatch(func(app *Application) {
-				log.Printf("Action: Closing modal root %T via Escape\n", currentModalRoot)
 				if currentModalRoot != nil { // Use the captured currentModalRoot
 					currentModalRoot.SetVisible(false) // Hide the widget that was modal
 					app.ClearModalRoot()               // Use method to clear internal state
@@ -106,51 +95,32 @@ func (a *Application) handleGlobalKeys(key tcell.Key, currentRoot, currentFocuse
 			})
 			return true
 		} else {
-			log.Println("handleGlobalKeys: Escape detected without modal, stopping.")
 			a.Stop()
 			return true
 		}
 
 	case tcell.KeyTab: // --- Focus Forward ---
-		log.Println("handleGlobalKeys: Tab detected.")
 		searchRoot := currentRoot
 		if currentModalRoot != nil {
 			searchRoot = currentModalRoot
-			log.Println("handleGlobalKeys: Tab - Searching within modal root.")
-		} else {
-			log.Println("handleGlobalKeys: Tab - Searching within main root.")
 		}
 		if searchRoot != nil {
 			next := a.findNextFocus(currentFocused, searchRoot, true)
 			if next != nil && next != currentFocused {
-				log.Printf("handleGlobalKeys: Tab - Found next focus: %T. Dispatching SetFocus.", next)
 				a.Dispatch(func(app *Application) { app.SetFocus(next) })
-			} else if next == nil {
-				log.Println("handleGlobalKeys: Tab - No next focus found within scope.")
-			} else {
-				log.Println("handleGlobalKeys: Tab - Next focus is same as current.")
 			}
 		}
 		return true // Consume Tab
 
 	case tcell.KeyBacktab: // --- Focus Backward ---
-		log.Println("handleGlobalKeys: Backtab detected.")
 		searchRoot := currentRoot
 		if currentModalRoot != nil {
 			searchRoot = currentModalRoot
-			log.Println("handleGlobalKeys: Backtab - Searching within modal root.")
-		} else {
-			log.Println("handleGlobalKeys: Backtab - Searching within main root.")
 		}
 		if searchRoot != nil {
 			prev := a.findNextFocus(currentFocused, searchRoot, false)
 			if prev != nil && prev != currentFocused {
-				log.Printf("handleGlobalKeys: Backtab - Found previous focus: %T. Dispatching SetFocus.", prev)
 				a.Dispatch(func(app *Application) { app.SetFocus(prev) })
-			} else if prev == nil {
-				log.Println("handleGlobalKeys: Backtab - No previous focus found within scope.")
-			} else {
-				log.Println("handleGlobalKeys: Backtab - Previous focus is same as current.")
 			}
 		}
 		return true // Consume Shift+Tab

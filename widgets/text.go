@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/LixenWraith/tinytui" // Import the main package
+	"github.com/LixenWraith/tinytui"
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 )
@@ -35,7 +35,7 @@ func NewText(content string) *Text {
 
 // SetContent updates the text content displayed by the widget.
 // NOTE: Return type changed from *Text to void to satisfy tinytui.TextUpdater interface.
-func (t *Text) SetContent(content string) { // <<< Changed return type
+func (t *Text) SetContent(content string) {
 	t.mu.Lock()
 	if t.content == content {
 		t.mu.Unlock()
@@ -52,7 +52,7 @@ func (t *Text) SetContent(content string) { // <<< Changed return type
 }
 
 // SetStyle sets the style used to draw the text.
-func (t *Text) SetStyle(style tinytui.Style) *Text { // <--- Keeps chaining
+func (t *Text) SetStyle(style tinytui.Style) *Text {
 	t.mu.Lock()
 	t.style = style
 	t.mu.Unlock()
@@ -64,11 +64,11 @@ func (t *Text) SetStyle(style tinytui.Style) *Text { // <--- Keeps chaining
 }
 
 // SetWrap enables or disables word wrapping.
-func (t *Text) SetWrap(wrap bool) *Text { // <--- Keeps chaining
+func (t *Text) SetWrap(wrap bool) *Text {
 	t.mu.Lock()
 	if t.wrap == wrap {
 		t.mu.Unlock()
-		return t // No change
+		return t
 	}
 	t.wrap = wrap
 	t.lines = nil // Invalidate cached lines, needs recalculation
@@ -181,7 +181,7 @@ func (t *Text) recalculateLines() {
 
 // Draw draws the text content within the widget's bounds.
 func (t *Text) Draw(screen tcell.Screen) {
-	if !t.IsVisible() { // Check visibility first
+	if !t.IsVisible() {
 		return
 	}
 	x, y, width, height := t.GetRect()
@@ -227,7 +227,7 @@ func (t *Text) Draw(screen tcell.Screen) {
 		tinytui.DrawText(screen, x, y+i, currentStyle, line)
 	}
 
-	// Optional: Clear remaining lines if content is shorter than height
+	// Clear remaining lines if content is shorter than height
 	for i := len(linesToDraw); i < height; i++ {
 		tinytui.Fill(screen, x, y+i, width, 1, ' ', currentStyle)
 	}

@@ -28,7 +28,7 @@ type Sprite struct {
 // The sprite's dimensions are determined by the provided data.
 func NewSprite(data [][]SpriteCell) *Sprite {
 	s := &Sprite{
-		cells: data, // Store the data directly
+		cells: data,
 	}
 	s.SetVisible(true)
 	// Initial SetRect will be called by the layout later
@@ -61,7 +61,7 @@ func (s *Sprite) GetData() [][]SpriteCell {
 // It respects the widget's bounds and treats cells with no explicit
 // background style as transparent.
 func (s *Sprite) Draw(screen tcell.Screen) {
-	// Visibility check will be added to BaseWidget.Draw later
+	// Visibility check done at BaseWidget.Draw later
 	// if !s.IsVisible() { return }
 
 	s.BaseWidget.Draw(screen) // Handle base drawing (like background if BaseWidget supports it)

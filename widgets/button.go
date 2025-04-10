@@ -1,11 +1,10 @@
 // widgets/button.go
-// Package widgets provides various UI components for tinytui. // <<< Corrected comment
 package widgets
 
 import (
 	"sync"
 
-	"github.com/LixenWraith/tinytui" // Import the main package
+	"github.com/LixenWraith/tinytui"
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 )
@@ -25,7 +24,7 @@ const (
 // Button is a focusable widget that displays a label and triggers an action.
 type Button struct {
 	tinytui.BaseWidget
-	mu           sync.RWMutex // Protects access to button properties
+	mu           sync.RWMutex
 	label        string
 	style        tinytui.Style
 	focusedStyle tinytui.Style

@@ -1,12 +1,6 @@
 // focus.go
 package tinytui
 
-import (
-	"fmt" // For logging
-	"log"
-	// No tcell needed here directly
-)
-
 // SetFocus changes the currently focused widget.
 // It calls Blur() on the previously focused widget and Focus() on the new one.
 // It only sets focus if the target widget is Focusable and Visible.
@@ -17,8 +11,6 @@ func (a *Application) SetFocus(widget Widget) {
 
 	// Ensure the target widget is actually focusable and visible
 	if widget != nil && (!widget.Focusable() || !widget.IsVisible()) {
-		log.Printf("SetFocus: Refused for non-focusable/invisible widget %T (Focusable: %v, Visible: %v)",
-			widget, widget.Focusable(), widget.IsVisible())
 		a.mu.Unlock()
 		return
 	}
@@ -27,16 +19,6 @@ func (a *Application) SetFocus(widget Widget) {
 		a.mu.Unlock() // Unlock if no change
 		return        // No change
 	}
-
-	oldType := "nil"
-	if a.focused != nil {
-		oldType = fmt.Sprintf("%T", a.focused)
-	}
-	newType := "nil"
-	if widget != nil {
-		newType = fmt.Sprintf("%T", widget)
-	}
-	log.Printf("SetFocus: Changing focus from %s to %s", oldType, newType)
 
 	oldFocused := a.focused
 	a.focused = widget // Update internal state
@@ -96,13 +78,12 @@ func (a *Application) findFirstFocusable(start Widget) Widget {
 // findNextFocus finds the next (or previous) focusable widget within the scope of searchRoot.
 func (a *Application) findNextFocus(currentFocused Widget, searchRoot Widget, forward bool) Widget {
 	if searchRoot == nil {
-		log.Println("findNextFocus: searchRoot is nil.")
 		return nil // Cannot search without a root
 	}
 
 	// Rebuild the list of focusable widgets within the searchRoot scope each time
 	localFocusableWidgets := make([]Widget, 0)
-	a.findFocusableWidgets(searchRoot, &localFocusableWidgets) // Use helper
+	a.findFocusableWidgets(searchRoot, &localFocusableWidgets)
 
 	if len(localFocusableWidgets) == 0 {
 		return nil // No focusable widgets found in this scope

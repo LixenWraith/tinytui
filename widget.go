@@ -77,5 +77,3 @@ type Widget interface {
 	// SetVisible sets the local visibility state of the widget.
 	SetVisible(visible bool)
 }
-
-// Note: Assumes Application is defined in app.go within the same package.

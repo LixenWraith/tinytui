@@ -6,7 +6,7 @@ import "github.com/gdamore/tcell/v2"
 // --- Color Abstraction ---
 
 // Color represents a TUI color. It wraps tcell.Color.
-type Color = tcell.Color // Using a type alias for now for simplicity
+type Color = tcell.Color
 
 // Predefined Colors (mapping to tcell)
 const (

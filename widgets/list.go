@@ -4,7 +4,7 @@ package widgets
 import (
 	"sync"
 
-	"github.com/LixenWraith/tinytui" // Import the main package
+	"github.com/LixenWraith/tinytui"
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 )

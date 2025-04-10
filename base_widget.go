@@ -26,7 +26,6 @@ type BaseWidget struct {
 
 // Draw checks visibility before proceeding. Concrete widgets should override this.
 func (b *BaseWidget) Draw(screen tcell.Screen) {
-	// --- Add Visibility Check ---
 	// Visibility check is implicitly handled by IsVisible() called by callers or within overrides.
 	// No explicit check needed here unless BaseWidget itself drew something.
 	if !b.IsVisible() {
@@ -34,7 +33,6 @@ func (b *BaseWidget) Draw(screen tcell.Screen) {
 		// including its background or border.
 		return
 	}
-	// --- End Visibility Check ---
 
 	// Default: do nothing further (concrete widgets override)
 }
@@ -60,12 +58,10 @@ func (b *BaseWidget) GetRect() (x, y, width, height int) {
 //
 //	The registered handler function should check event.Rune() if needed.
 func (b *BaseWidget) HandleEvent(event tcell.Event) bool {
-	// --- Add Visibility Check ---
 	// Invisible widgets should generally not handle events either.
 	if !b.IsVisible() {
 		return false
 	}
-	// --- End Visibility Check ---
 
 	keyEvent, ok := event.(*tcell.EventKey)
 	if !ok {
@@ -73,7 +69,7 @@ func (b *BaseWidget) HandleEvent(event tcell.Event) bool {
 	}
 
 	b.mu.RLock()
-	bindings := b.keyBindings // Read map under lock
+	bindings := b.keyBindings
 	b.mu.RUnlock()
 
 	if bindings == nil {
@@ -213,10 +209,10 @@ func (b *BaseWidget) SetKeybinding(key tcell.Key, mod tcell.ModMask, handler fun
 func (b *BaseWidget) IsVisible() bool {
 	b.mu.RLock()
 	isVisibleLocally := b.visible
-	parentWidget := b.parent // Read parent under lock
+	parentWidget := b.parent
 	b.mu.RUnlock()
 
-	if !isVisibleLocally { // Check self first
+	if !isVisibleLocally {
 		return false
 	}
 	// Check parent recursively (without holding lock on self)
@@ -232,7 +228,7 @@ func (b *BaseWidget) SetVisible(visible bool) {
 	b.mu.Lock()
 	changed := b.visible != visible
 	b.visible = visible
-	isCurrentlyFocused := b.focused // Check focus state under lock
+	isCurrentlyFocused := b.focused
 	app := b.app
 	b.mu.Unlock()
 
@@ -240,7 +236,7 @@ func (b *BaseWidget) SetVisible(visible bool) {
 		// If hiding a focused widget, blur it.
 		// The application focus logic should handle moving focus away later.
 		if !visible && isCurrentlyFocused {
-			b.Blur() // Call Blur which handles its own locking and redraw
+			b.Blur()
 		}
 		if app != nil {
 			app.QueueRedraw() // Redraw needed to show/hide

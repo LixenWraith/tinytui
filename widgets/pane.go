@@ -2,7 +2,7 @@
 package widgets
 
 import (
-	"sync" // Added sync back if needed by BaseWidget or other parts
+	"sync"
 
 	"github.com/LixenWraith/tinytui"
 	"github.com/gdamore/tcell/v2"
@@ -73,7 +73,7 @@ func (p *Pane) SetBorder(enabled bool, borderType tinytui.BorderType, style tiny
 	p.border = enabled
 	p.borderType = borderType
 	p.borderStyle = style
-	p.originalBorderStyle = style // Store the explicitly set border style
+	p.originalBorderStyle = style
 
 	// Update focus style background to match new border style bg, keep focus foreground
 	_, bg, _, _ := style.Deconstruct()
