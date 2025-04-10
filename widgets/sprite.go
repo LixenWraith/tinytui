@@ -30,7 +30,7 @@ func NewSprite(data [][]SpriteCell) *Sprite {
 	s := &Sprite{
 		cells: data,
 	}
-	s.SetVisible(true)
+	s.SetVisible(true) // Explicitly set visibility
 	// Initial SetRect will be called by the layout later
 	return s
 }
@@ -61,10 +61,7 @@ func (s *Sprite) GetData() [][]SpriteCell {
 // It respects the widget's bounds and treats cells with no explicit
 // background style as transparent.
 func (s *Sprite) Draw(screen tcell.Screen) {
-	// Visibility check done at BaseWidget.Draw later
-	// if !s.IsVisible() { return }
-
-	s.BaseWidget.Draw(screen) // Handle base drawing (like background if BaseWidget supports it)
+	s.BaseWidget.Draw(screen)
 
 	x, y, width, height := s.GetRect()
 	if width <= 0 || height <= 0 {
@@ -139,6 +136,9 @@ func (s *Sprite) Draw(screen tcell.Screen) {
 
 // Focusable returns false, Sprites are not focusable by default.
 func (s *Sprite) Focusable() bool {
+	if !s.IsVisible() {
+		return false
+	}
 	return false
 }
 

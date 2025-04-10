@@ -31,6 +31,7 @@ func NewList() *List {
 		style:         tinytui.DefaultStyle,
 		selectedStyle: tinytui.DefaultStyle.Reverse(true), // Default selection is reversed
 	}
+	l.SetVisible(true) // Explicitly set visibility
 	return l
 }
 
@@ -217,6 +218,8 @@ func (l *List) triggerOnSelect() {
 
 // Draw draws the list items within the widget's bounds.
 func (l *List) Draw(screen tcell.Screen) {
+	l.BaseWidget.Draw(screen)
+
 	x, y, width, height := l.GetRect()
 	if width <= 0 || height <= 0 {
 		return
@@ -298,6 +301,9 @@ func (l *List) SetRect(x, y, width, height int) {
 
 // Focusable indicates that Lists can receive focus.
 func (l *List) Focusable() bool {
+	if !l.IsVisible() {
+		return false
+	}
 	return true
 }
 

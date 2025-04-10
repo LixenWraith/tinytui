@@ -43,7 +43,7 @@ func NewButton(label string) *Button {
 		indicatorPos: IndicatorLeft,                      // Default position
 		onClick:      nil,
 	}
-	b.SetVisible(true) // Buttons are always visible on creation
+	b.SetVisible(true) // Explicitly set visibility
 	return b
 }
 
@@ -127,6 +127,8 @@ func (b *Button) PreferredHeight() int {
 
 // Draw draws the button.
 func (b *Button) Draw(screen tcell.Screen) {
+	b.BaseWidget.Draw(screen)
+
 	x, y, width, height := b.GetRect()
 	if width <= 0 || height <= 0 {
 		return
@@ -232,6 +234,9 @@ func (b *Button) Draw(screen tcell.Screen) {
 
 // Focusable indicates that Buttons can receive focus.
 func (b *Button) Focusable() bool {
+	if !b.IsVisible() {
+		return false
+	}
 	return true
 }
 

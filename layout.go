@@ -62,7 +62,7 @@ func NewFlexLayout(orientation Orientation) *FlexLayout {
 		mainAxisAlign:  AlignStart,   // Default: items start at beginning
 		crossAxisAlign: AlignStretch, // Default: stretch items in cross-axis
 	}
-	l.SetVisible(true)
+	l.SetVisible(true) // Explicitly set visibility
 	return l
 }
 
@@ -397,11 +397,7 @@ func (l *FlexLayout) SetGap(gap int) *FlexLayout {
 // Draw iterates through the children and calls their Draw methods.
 // It relies on SetRect having already positioned the children correctly.
 func (l *FlexLayout) Draw(screen tcell.Screen) {
-	// --- Visibility Check for Layout Itself ---
-	if !l.IsVisible() {
-		return
-	}
-	// --- End Check ---
+	l.BaseWidget.Draw(screen)
 
 	// Draw children (BaseWidget.Draw handles visibility check for each child)
 	for _, info := range l.children {

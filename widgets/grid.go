@@ -49,7 +49,7 @@ func NewGrid() *Grid {
 		style:         tinytui.DefaultStyle,
 		selectedStyle: tinytui.DefaultStyle.Reverse(true),
 	}
-	g.SetVisible(true)
+	g.SetVisible(true) // Explicitly set visibility
 	return g
 }
 
@@ -271,9 +271,8 @@ func (g *Grid) triggerOnSelect() {
 
 // Draw renders the visible portion of the grid.
 func (g *Grid) Draw(screen tcell.Screen) {
-	if !g.IsVisible() { // Check visibility using BaseWidget method
-		return
-	}
+	g.BaseWidget.Draw(screen)
+
 	x, y, width, height := g.GetRect()
 	if width <= 0 || height <= 0 || g.cellWidth <= 0 || g.cellHeight <= 0 {
 		return // Cannot draw
@@ -355,6 +354,10 @@ func (g *Grid) SetRect(x, y, width, height int) {
 
 // Focusable indicates Grid can receive focus.
 func (g *Grid) Focusable() bool {
+	if !g.IsVisible() {
+		return false
+	}
+
 	g.mu.RLock()
 	hasContent := g.numRows > 0 && g.numCols > 0
 	g.mu.RUnlock()

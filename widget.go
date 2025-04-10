@@ -70,11 +70,16 @@ type Widget interface {
 	// This is typically called by container widgets when adding a child.
 	SetParent(parent Widget)
 
-	// IsVisible returns the effective visibility state of the widget,
-	// considering its own state and its parents' visibility.
+	// IsVisible returns whether the widget is currently visible.
+	// This considers both the widget's own visibility state
+	// and its parents' visibility (a widget is only truly visible
+	// if all its ancestors are visible).
 	IsVisible() bool
 
-	// SetVisible sets the local visibility state of the widget.
+	// SetVisible changes the widget's local visibility state.
+	// Note that a widget may still be effectively invisible if any
+	// of its ancestors are invisible.
+	// Setting a widget to invisible will blur it if currently focused.
 	SetVisible(visible bool)
 
 	// PreferredWidth returns the widget's desired width, used for layout calculations

@@ -25,11 +25,10 @@ func NewText(content string) *Text {
 	t := &Text{
 		content: content,
 		style:   tinytui.DefaultStyle,
-		wrap:    false, // Default to no wrapping
-		lines:   nil,   // Initially nil, calculated on demand or SetRect
+		wrap:    false,
+		lines:   nil,
 	}
-	t.SetVisible(true)
-	// Text is not focusable by default
+	t.SetVisible(true) // Explicitly set visibility
 	return t
 }
 
@@ -181,9 +180,8 @@ func (t *Text) recalculateLines() {
 
 // Draw draws the text content within the widget's bounds.
 func (t *Text) Draw(screen tcell.Screen) {
-	if !t.IsVisible() {
-		return
-	}
+	t.BaseWidget.Draw(screen)
+
 	x, y, width, height := t.GetRect()
 	if width <= 0 || height <= 0 {
 		return // Nothing to draw
@@ -251,6 +249,9 @@ func (t *Text) SetRect(x, y, width, height int) {
 
 // Focusable returns false, Text widgets are not focusable by default.
 func (t *Text) Focusable() bool {
+	if !t.IsVisible() {
+		return false
+	}
 	return false
 }
 

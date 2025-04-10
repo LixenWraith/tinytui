@@ -39,7 +39,7 @@ func NewPane() *Pane {
 	// Set a default focus border style (e.g., bright yellow foreground)
 	p.focusBorderStyle = tinytui.DefaultStyle.Foreground(tinytui.ColorYellow).Bold(true)
 	p.originalBorderStyle = p.borderStyle // Initialize original style
-	p.SetVisible(true)                    // Panes are visible by default
+	p.SetVisible(true)                    // Explicitly set visibility
 	return p
 }
 
@@ -108,10 +108,7 @@ func (p *Pane) SetFocusBorderStyle(style tinytui.Style) *Pane {
 
 // Draw draws the pane, including its border, background, and child widget.
 func (p *Pane) Draw(screen tcell.Screen) {
-	// Use BaseWidget's visibility check first
-	if !p.IsVisible() {
-		return
-	}
+	p.BaseWidget.Draw(screen)
 
 	x, y, width, height := p.GetRect()
 	if width <= 0 || height <= 0 {
@@ -197,14 +194,16 @@ func hasFocusableDescendant(w tinytui.Widget) bool {
 // It should only be focusable if it's visible AND it does not contain
 // any focusable descendants.
 func (p *Pane) Focusable() bool {
+	if !p.IsVisible() {
+		return false
+	}
+
 	p.mu.RLock()
 	childWidget := p.child
 	p.mu.RUnlock()
 
-	isVisible := p.IsVisible() // Check visibility using BaseWidget method
-
-	// Pane is focusable only if it's visible AND has no focusable descendants
-	return isVisible && !hasFocusableDescendant(childWidget)
+	// Pane is focusable only if it has no focusable descendants
+	return !hasFocusableDescendant(childWidget)
 }
 
 // Focus is called when the pane gains focus.
