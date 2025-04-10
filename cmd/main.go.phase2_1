@@ -1,0 +1,80 @@
+// main.go
+package main
+
+import (
+	"log"
+
+	"github.com/LixenWraith/tinytui"         // Import the main package
+	"github.com/LixenWraith/tinytui/widgets" // Import the widgets sub-package
+)
+
+func main() {
+	// 1. Create the application instance
+	app := tinytui.NewApplication()
+
+	// 2. Create the Panes
+	pane1 := widgets.NewPane().
+		SetStyle(
+			tinytui.DefaultStyle.
+				Background(tinytui.ColorNavy).
+				Foreground(tinytui.ColorSilver),
+		).
+		SetBorder( // Give pane 1 a single border
+			true,
+			tinytui.BorderSingle,
+			tinytui.DefaultStyle.
+				Foreground(tinytui.ColorWhite).
+				Background(tinytui.ColorNavy), // Match background
+		)
+
+	pane2 := widgets.NewPane().
+		SetStyle(
+			tinytui.DefaultStyle.
+				Background(tinytui.ColorGreen). // Changed color for visibility
+				Foreground(tinytui.ColorBlack),
+		).
+		SetBorder( // Give pane 2 a solid border
+			true,
+			tinytui.BorderSolid, // Use solid border
+			tinytui.DefaultStyle.
+				Foreground(tinytui.ColorLime).
+				Background(tinytui.ColorGreen), // Match background
+		)
+
+	pane3 := widgets.NewPane().
+		SetStyle(
+			tinytui.DefaultStyle.
+				Background(tinytui.ColorMaroon).
+				Foreground(tinytui.ColorYellow),
+		).
+		SetBorder( // Give pane 3 a double border
+			true,
+			tinytui.BorderDouble,
+			tinytui.DefaultStyle.
+				Foreground(tinytui.ColorAqua).
+				Background(tinytui.ColorMaroon). // Match background
+				Bold(true),
+		)
+
+	// 3. Create the Layout
+	// We want panes side-by-side, so use Horizontal orientation.
+	layout := tinytui.NewFlexLayout(tinytui.Horizontal).
+		// Add pane1: Fixed width of 20. Proportion is ignored (can be 0).
+		AddChild(pane1, 20, 0).
+		// Add pane2: Proportional width. FixedSize=0, Proportion=1.
+		// It will take up all space remaining after pane1 and pane3 are sized.
+		AddChild(pane2, 0, 1).
+		// Add pane3: Fixed width of 15. Proportion is ignored.
+		AddChild(pane3, 15, 0)
+
+	// 4. Set the Layout as the root widget.
+	//    The 'true' argument makes it fill the entire screen initially.
+	app.SetRoot(layout, true)
+
+	// 5. Run the application's event loop.
+	log.Println("Starting tinytui application (Phase 2 - Fixed/Flex Layout Test)...")
+	if err := app.Run(); err != nil {
+		log.Fatalf("Error running application: %v", err)
+	}
+	log.Println("Tinytui application stopped.")
+}

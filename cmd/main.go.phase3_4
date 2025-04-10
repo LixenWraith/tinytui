@@ -1,0 +1,100 @@
+// main.go
+package main
+
+import (
+	"fmt" // Import fmt for string formatting
+	"log"
+	"os"
+	"time"
+
+	"github.com/LixenWraith/tinytui"
+	"github.com/LixenWraith/tinytui/widgets"
+)
+
+func main() {
+	// --- Basic Logging Setup ---
+	logFile, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+	log.Println("--- Application Starting ---")
+
+	// --- Create Application ---
+	app := tinytui.NewApplication()
+
+	// --- Create Widgets ---
+
+	// 1. Title
+	titleText := widgets.NewText("TinyTUI Grid Demo (Esc to Quit)").
+		SetStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorAqua).Bold(true))
+
+	// 2. Info Text Area
+	infoText := widgets.NewText("Navigate grid with Arrows or HJKL. Space to select.").SetWrap(true)
+
+	// 3. Create Grid Widget
+	grid := widgets.NewGrid()
+	grid.SetCellSize(15, 1) // Set cell width=15, height=1
+
+	// Create some sample data for the grid
+	gridData := make([][]string, 15) // 15 rows
+	for r := 0; r < 15; r++ {
+		gridData[r] = make([]string, 10) // 10 columns
+		for c := 0; c < 10; c++ {
+			gridData[r][c] = fmt.Sprintf("R%d, C%d", r, c)
+		}
+	}
+	grid.SetCells(gridData)
+
+	// Set callbacks for the grid
+	grid.SetOnChange(func(row, col int, item string) {
+		log.Printf("Grid selection changed: Row %d, Col %d, Item '%s'\n", row, col, item)
+		infoText.SetContent(fmt.Sprintf("Selected: %s", item))
+	})
+	grid.SetOnSelect(func(row, col int, item string) {
+		log.Printf("Grid item selected: Row %d, Col %d, Item '%s'\n", row, col, item)
+		infoText.SetContent(fmt.Sprintf("Activated: %s at %s", item, time.Now().Format(time.Kitchen)))
+		// Example: Maybe change style on select?
+		grid.SetSelectedStyle(tinytui.DefaultStyle.Background(tinytui.ColorGreen).Foreground(tinytui.ColorBlack))
+		// Need to redraw after changing style
+		if app := grid.App(); app != nil {
+			app.QueueRedraw()
+		}
+		// Reset style after a short delay (example of async update)
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			grid.SetSelectedStyle(tinytui.DefaultStyle.Reverse(true)) // Back to default selection style
+			// Queue redraw from the goroutine
+			if app := grid.App(); app != nil {
+				app.QueueRedraw()
+			}
+		}()
+	})
+
+	// 4. Buttons (Optional - keep for focus testing)
+	button1 := widgets.NewButton("Focus Test")
+	button1.SetOnClick(func() { infoText.SetContent("Button Focused/Clicked") })
+
+	// --- Create Layouts ---
+
+	// Main Vertical layout
+	layout := tinytui.NewFlexLayout(tinytui.Vertical).
+		AddChild(titleText, 1, 0). // Fixed height 1
+		AddChild(grid, 0, 1).      // Grid takes proportional space
+		AddChild(infoText, 3, 0).  // Info text area, fixed height 3
+		AddChild(button1, 1, 0)    // Button, fixed height 1
+
+	// --- Set Root and Run ---
+	app.SetRoot(layout, true)
+
+	// Set initial focus to the grid
+	app.SetFocus(grid)
+
+	log.Println("Starting TUI...")
+	if err := app.Run(); err != nil {
+		log.Fatalf("Error running application: %v", err)
+	}
+
+	log.Println("--- Application Stopped ---")
+}

@@ -1,0 +1,76 @@
+// main.go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/LixenWraith/tinytui"
+	"github.com/LixenWraith/tinytui/widgets"
+	"github.com/gdamore/tcell/v2" // Import tcell for key constants
+)
+
+func main() {
+	// --- Basic Logging Setup ---
+	logFile, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+	log.Println("--- Application Starting ---")
+
+	// --- Create Application ---
+	app := tinytui.NewApplication()
+
+	// --- Create Widgets ---
+	pane1 := widgets.NewPane().
+		SetBorder(true, tinytui.BorderSingle, tinytui.DefaultStyle.Foreground(tinytui.ColorGreen))
+	// Customize focus border for pane1
+	pane1.SetFocusBorderStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorAqua).Bold(true))
+
+	pane2 := widgets.NewPane().
+		SetBorder(true, tinytui.BorderDouble, tinytui.DefaultStyle.Foreground(tinytui.ColorRed))
+	// Customize focus border for pane2
+	pane2.SetFocusBorderStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorYellow).Bold(true))
+
+	pane3 := widgets.NewPane().
+		SetBorder(true, tinytui.BorderSolid, tinytui.DefaultStyle.Foreground(tinytui.ColorBlue)).
+		SetStyle(tinytui.DefaultStyle.Background(tinytui.ColorDarkGray)) // Give pane3 a background
+	// Use default focus border for pane3 (should be yellow from NewPane)
+
+	// --- Add Keybinding to Pane 2 ---
+	// When pane2 is focused, pressing 's' (lowercase) will print a log message.
+	// The handler returns 'true' to indicate the event was consumed.
+	// *** Corrected call: Removed the extra 's' argument ***
+	pane2.SetKeybinding(tcell.KeyRune, tcell.ModNone, func() bool {
+		// Inside the handler, you *could* check event.Rune() if you bound
+		// multiple runes to KeyRune + ModNone, but here it's implied
+		// we only care about the key that triggered this specific handler.
+		// For this simple case, we assume it was 's'.
+		log.Println("Key 's' pressed on Pane 2!")
+		// We could trigger other actions here, like updating pane content
+		// or calling back to other parts of the application.
+		// For now, just log.
+		// Returning true prevents the event from bubbling further.
+		return true
+	})
+
+	// --- Create Layout ---
+	// Vertical layout: pane1 (fixed height 5), pane2 (prop 1), pane3 (prop 1)
+	layout := tinytui.NewFlexLayout(tinytui.Vertical).
+		AddChild(pane1, 5, 0). // Fixed height 5
+		AddChild(pane2, 0, 1). // Proportional height 1
+		AddChild(pane3, 0, 1)  // Proportional height 1
+
+	// --- Set Root and Run ---
+	// Set the layout as the root, fullscreen = true
+	app.SetRoot(layout, true)
+
+	log.Println("Starting TUI...")
+	if err := app.Run(); err != nil {
+		log.Fatalf("Error running application: %v", err)
+	}
+
+	log.Println("--- Application Stopped ---")
+}

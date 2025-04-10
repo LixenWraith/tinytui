@@ -1,0 +1,45 @@
+// main.go
+package main
+
+import (
+	"log"
+
+	"github.com/LixenWraith/tinytui"         // Import the main package
+	"github.com/LixenWraith/tinytui/widgets" // Import the widgets sub-package
+)
+
+func main() {
+	// 1. Create the application instance
+	app := tinytui.NewApplication()
+
+	// 2. Create a Pane from the widgets package
+	mainPane := widgets.NewPane().
+		// Set background and default foreground using tinytui types
+		SetStyle(
+			tinytui.DefaultStyle.
+				Background(tinytui.ColorDarkBlue). // Use a darker background
+				Foreground(tinytui.ColorSilver),   // Keep foreground for potential future text
+		).
+		// Enable the border, set its type to Double, and style it
+		SetBorder(
+			true,                 // Enable border
+			tinytui.BorderDouble, // Use double lines
+			tinytui.DefaultStyle. // Style for the border characters
+						Foreground(tinytui.ColorAqua).     // Color of the border lines
+						Background(tinytui.ColorDarkBlue). // Match pane background
+						Bold(true),                        // Make lines bold
+		)
+
+	// 3. Set the created Pane as the root widget.
+	//    The 'true' argument makes it fill the entire screen initially.
+	app.SetRoot(mainPane, true)
+
+	// 4. Run the application's event loop.
+	//    This blocks until the application is stopped (e.g., Ctrl+C).
+	log.Println("Starting tinytui application (Phase 1 - Double Border Test)...")
+	if err := app.Run(); err != nil {
+		// Log fatal errors if the application fails to start or run.
+		log.Fatalf("Error running application: %v", err)
+	}
+	log.Println("Tinytui application stopped.")
+}
