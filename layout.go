@@ -3,6 +3,7 @@ package tinytui
 
 import (
 	"github.com/gdamore/tcell/v2"
+	"sync"
 )
 
 // Orientation defines the direction children are laid out in a FlexLayout.
@@ -17,10 +18,25 @@ const (
 
 // ChildInfo holds a widget and its layout constraints within a FlexLayout.
 type ChildInfo struct {
-	Widget     Widget // The child widget itself
-	FixedSize  int    // Fixed size (width for Horizontal, height for Vertical). 0 means use proportion.
-	Proportion int    // Proportion of the remaining flexible space to allocate. Minimum 1 if FixedSize is 0.
+	Widget     Widget    // The child widget itself
+	FixedSize  int       // Fixed size (width for Horizontal, height for Vertical). 0 means use proportion.
+	Proportion int       // Proportion of the remaining flexible space to allocate. Minimum 1 if FixedSize is 0.
+	Alignment  Alignment // How this child aligns on the cross axis (overrides parent's crossAxisAlign)
 }
+
+// Alignment defines how items are aligned along a layout axis.
+type Alignment int
+
+const (
+	// AlignStart aligns items at the start (top/left)
+	AlignStart Alignment = iota
+	// AlignCenter centers items within the available space
+	AlignCenter
+	// AlignEnd aligns items at the end (bottom/right)
+	AlignEnd
+	// AlignStretch stretches items to fill the container (default)
+	AlignStretch
+)
 
 // FlexLayout arranges child widgets horizontally or vertically.
 // It distributes space based on fixed sizes and proportions.
@@ -29,19 +45,24 @@ type FlexLayout struct {
 	orientation Orientation  // How to arrange children (Horizontal or Vertical)
 	children    []*ChildInfo // List of child widgets and their layout info
 	gap         int          // Gap between children
+
+	// Alignment properties
+	mainAxisAlign  Alignment // Alignment along the main axis (horizontal for Horizontal, vertical for Vertical)
+	crossAxisAlign Alignment // Alignment along the cross axis (vertical for Horizontal, horizontal for Vertical)
+
+	mu sync.RWMutex // Protect concurrent access to properties
 }
 
-// NewFlexLayout creates a new layout container.
+// NewFlexLayout creates a new layout container with default alignments.
 func NewFlexLayout(orientation Orientation) *FlexLayout {
 	l := &FlexLayout{
-		orientation: orientation,
-		children:    make([]*ChildInfo, 0),
-		gap:         0, // Initialize gap to 0
+		orientation:    orientation,
+		children:       make([]*ChildInfo, 0),
+		gap:            0,
+		mainAxisAlign:  AlignStart,   // Default: items start at beginning
+		crossAxisAlign: AlignStretch, // Default: stretch items in cross-axis
 	}
 	l.SetVisible(true)
-	// Although FlexLayout itself isn't focusable by default,
-	// embedding BaseWidget means it inherits the SetApplication method,
-	// which is crucial for propagating the app pointer to children.
 	return l
 }
 
@@ -99,35 +120,39 @@ func (l *FlexLayout) SetApplication(app *Application) {
 	}
 }
 
-// SetRect calculates and sets the bounds for all child widgets based on
-// the layout's orientation, children's size constraints, and the gap.
+// Modified SetRect to handle alignment
 func (l *FlexLayout) SetRect(x, y, width, height int) {
 	l.BaseWidget.SetRect(x, y, width, height) // Store our own rect
 
-	// --- Filter Visible Children ---
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Filter visible children
 	visibleChildren := make([]*ChildInfo, 0, len(l.children))
 	for _, info := range l.children {
-		if info.Widget != nil && info.Widget.IsVisible() { // Check visibility
+		if info.Widget != nil && info.Widget.IsVisible() {
 			visibleChildren = append(visibleChildren, info)
 		} else if info.Widget != nil {
-			// Ensure invisible widgets have zero size rect
 			info.Widget.SetRect(x, y, 0, 0)
 		}
 	}
-	// --- End Filter ---
 
-	numVisibleChildren := len(visibleChildren) // Use count of visible children
+	numVisibleChildren := len(visibleChildren)
 	if numVisibleChildren == 0 {
-		return // Nothing visible to lay out
+		return
 	}
+
+	// Calculate sizes for each child first
+	sizes := make([]int, numVisibleChildren)
 
 	totalFixedSize := 0
 	totalProportion := 0
 	flexibleChildrenCount := 0
 
-	// First pass: Calculate total fixed size and total proportion for VISIBLE children
-	for _, info := range visibleChildren { // Iterate over visible children
+	// Calculate total fixed size and proportion
+	for i, info := range visibleChildren {
 		if info.FixedSize > 0 {
+			sizes[i] = info.FixedSize
 			totalFixedSize += info.FixedSize
 		} else {
 			totalProportion += info.Proportion
@@ -135,12 +160,13 @@ func (l *FlexLayout) SetRect(x, y, width, height int) {
 		}
 	}
 
-	// Calculate total gap space needed for VISIBLE children
+	// Calculate total gap space
 	totalGap := 0
-	if numVisibleChildren > 1 { // Use visible count
+	if numVisibleChildren > 1 {
 		totalGap = l.gap * (numVisibleChildren - 1)
 	}
 
+	// Calculate available space for proportional items
 	var availableSpace int
 	if l.orientation == Horizontal {
 		availableSpace = width - totalFixedSize - totalGap
@@ -152,63 +178,205 @@ func (l *FlexLayout) SetRect(x, y, width, height int) {
 		availableSpace = 0
 	}
 
-	spacePerProportion := 0
+	// Calculate sizes for proportional children
 	if totalProportion > 0 && availableSpace > 0 {
-		spacePerProportion = availableSpace / totalProportion
-	}
-	remainder := 0
-	if totalProportion > 0 && availableSpace > 0 {
-		remainder = availableSpace % totalProportion
-	}
+		spacePerProportion := availableSpace / totalProportion
+		remainder := availableSpace % totalProportion
 
-	currentX, currentY := x, y
-	spaceAllocatedToFlex := 0
+		spaceAllocatedToFlex := 0
 
-	// Second pass: Assign rectangles to VISIBLE children
-	for i, info := range visibleChildren { // Iterate over visible children
-		childWidth := 0
-		childHeight := 0
-		size := 0
+		for i, info := range visibleChildren {
+			if info.FixedSize <= 0 {
+				size := info.Proportion * spacePerProportion
+				if remainder > 0 {
+					size++
+					remainder--
+				}
 
-		if info.FixedSize > 0 {
-			size = info.FixedSize
-		} else if totalProportion > 0 {
-			size = info.Proportion * spacePerProportion
-			if remainder > 0 {
-				size++
-				remainder--
+				spaceAllocatedToFlex += size
+				if spaceAllocatedToFlex > availableSpace {
+					diff := spaceAllocatedToFlex - availableSpace
+					size -= diff
+					spaceAllocatedToFlex -= diff
+				}
+
+				sizes[i] = max(0, size)
 			}
-			spaceAllocatedToFlex += size
+		}
+	}
+
+	// Calculate offsets for main axis alignment
+	mainAxisOffset := 0
+	if l.mainAxisAlign != AlignStart {
+		totalContentSize := totalFixedSize + availableSpace + totalGap
+
+		mainAxisSpace := 0
+		if l.orientation == Horizontal {
+			mainAxisSpace = width - totalContentSize
+		} else {
+			mainAxisSpace = height - totalContentSize
 		}
 
-		if info.FixedSize == 0 && spaceAllocatedToFlex > availableSpace {
-			diff := spaceAllocatedToFlex - availableSpace
-			size -= diff
-			spaceAllocatedToFlex -= diff
+		if mainAxisSpace > 0 {
+			if l.mainAxisAlign == AlignCenter {
+				mainAxisOffset = mainAxisSpace / 2
+			} else if l.mainAxisAlign == AlignEnd {
+				mainAxisOffset = mainAxisSpace
+			}
 		}
+	}
 
-		if size < 0 {
-			size = 0
-		}
+	// Calculate starting position
+	currentPos := mainAxisOffset
+	if l.orientation == Horizontal {
+		currentPos += x
+	} else {
+		currentPos += y
+	}
+
+	// Position each child based on alignments
+	for i, info := range visibleChildren {
+		childWidth := width
+		childHeight := height
+		childX := x
+		childY := y
 
 		if l.orientation == Horizontal {
-			childWidth = size
-			childHeight = height
-			info.Widget.SetRect(currentX, currentY, childWidth, childHeight)
-			currentX += childWidth
-			if i < numVisibleChildren-1 { // Use visible count for gap check
-				currentX += l.gap
+			// In horizontal layout, width is the child's size
+			childWidth = sizes[i]
+
+			// Set horizontal position
+			childX = currentPos
+
+			// Calculate vertical position based on cross-axis alignment
+			childAlign := l.crossAxisAlign
+			if info.Alignment != AlignStretch { // Use child's own alignment if specified
+				childAlign = info.Alignment
 			}
-		} else { // Vertical
-			childWidth = width
-			childHeight = size
-			info.Widget.SetRect(currentX, currentY, childWidth, childHeight)
-			currentY += childHeight
-			if i < numVisibleChildren-1 { // Use visible count for gap check
-				currentY += l.gap
+
+			if childAlign == AlignStart {
+				childY = y
+			} else if childAlign == AlignCenter {
+				// Only center if not stretching
+				childHeight = min(height, getPreferredHeight(info.Widget))
+				childY = y + (height-childHeight)/2
+			} else if childAlign == AlignEnd {
+				// Only align to end if not stretching
+				childHeight = min(height, getPreferredHeight(info.Widget))
+				childY = y + height - childHeight
 			}
+			// AlignStretch uses full height
+
+			// Move to next position
+			currentPos += childWidth + l.gap
+		} else {
+			// In vertical layout, height is the child's size
+			childHeight = sizes[i]
+
+			// Set vertical position
+			childY = currentPos
+
+			// Calculate horizontal position based on cross-axis alignment
+			childAlign := l.crossAxisAlign
+			if info.Alignment != AlignStretch { // Use child's own alignment if specified
+				childAlign = info.Alignment
+			}
+
+			if childAlign == AlignStart {
+				childX = x
+			} else if childAlign == AlignCenter {
+				// Only center if not stretching
+				childWidth = min(width, getPreferredWidth(info.Widget))
+				childX = x + (width-childWidth)/2
+			} else if childAlign == AlignEnd {
+				// Only align to end if not stretching
+				childWidth = min(width, getPreferredWidth(info.Widget))
+				childX = x + width - childWidth
+			}
+			// AlignStretch uses full width
+
+			// Move to next position
+			currentPos += childHeight + l.gap
 		}
+
+		// Apply the calculated position and size
+		info.Widget.SetRect(childX, childY, childWidth, childHeight)
 	}
+}
+
+// Helper function for preferred sizing
+func getPreferredWidth(w Widget) int {
+	if widget, ok := w.(interface{ PreferredWidth() int }); ok {
+		return widget.PreferredWidth()
+	}
+	return 10 // Default fallback
+}
+
+func getPreferredHeight(w Widget) int {
+	if widget, ok := w.(interface{ PreferredHeight() int }); ok {
+		return widget.PreferredHeight()
+	}
+	return 1 // Default fallback
+}
+
+// SetMainAxisAlignment sets how items are aligned along the main axis.
+func (l *FlexLayout) SetMainAxisAlignment(align Alignment) *FlexLayout {
+	l.mu.Lock()
+	l.mainAxisAlign = align
+	l.mu.Unlock()
+
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+// SetCrossAxisAlignment sets the default alignment of items along the cross axis.
+func (l *FlexLayout) SetCrossAxisAlignment(align Alignment) *FlexLayout {
+	l.mu.Lock()
+	l.crossAxisAlign = align
+	l.mu.Unlock()
+
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+// AddChildWithAlign adds a widget to the layout with specific alignment.
+func (l *FlexLayout) AddChildWithAlign(widget Widget, fixedSize int, proportion int, align Alignment) *FlexLayout {
+	if widget == nil {
+		return l // Ignore nil widgets
+	}
+
+	// Ensure proportion is valid if fixedSize is 0
+	prop := proportion
+	if fixedSize == 0 && prop < 1 {
+		prop = 1
+	}
+
+	info := &ChildInfo{
+		Widget:     widget,
+		FixedSize:  fixedSize,
+		Proportion: prop,
+		Alignment:  align,
+	}
+
+	l.mu.Lock()
+	l.children = append(l.children, info)
+	l.mu.Unlock()
+
+	// Link Child to Parent and Application
+	widget.SetParent(l)
+	if app := l.App(); app != nil {
+		widget.SetApplication(app)
+	}
+
+	// Request redraw if the layout is already part of an application
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
 }
 
 // SetGap sets the gap size between children.

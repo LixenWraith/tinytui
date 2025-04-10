@@ -243,3 +243,13 @@ func (b *BaseWidget) SetVisible(visible bool) {
 		}
 	}
 }
+
+// PreferredWidth fallback if not implemented by concrete widget
+func (b *BaseWidget) PreferredWidth() int {
+	return 10 // Default fallback // TODO: Implement as constant
+}
+
+// PreferredHeight fallback if not implemented by concrete widget
+func (b *BaseWidget) PreferredHeight() int {
+	return 1 // Default fallback // TODO: Implement as constant
+}

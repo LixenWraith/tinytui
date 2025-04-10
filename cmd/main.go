@@ -1,199 +1,234 @@
-// main.go
+// main.go - Enhanced demo application
 package main
 
 import (
 	"fmt"
-	"log"
 	"os"
-	"time" // Import time for potential delay
 
 	"github.com/LixenWraith/tinytui"
 	"github.com/LixenWraith/tinytui/widgets"
-	// tcell needed only if using tcell types directly, which we avoid now
 )
 
 func main() {
-	// --- Basic Logging Setup ---
-	logFile, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(err)
-	}
-	// Handle potential error on close
-	defer func() {
-		err := logFile.Close()
-		if err != nil {
-			log.Printf("Warning: Failed to close log file: %v", err)
-		}
-	}()
-	log.SetOutput(logFile)
-	log.Println("--- Application Starting ---")
-
 	// --- Create Application ---
-	app := tinytui.NewApplication() // Keep app instance accessible
-	log.Println("main.go: Application created.")
+	app := tinytui.NewApplication()
 
-	// --- Create Widgets ---
-	log.Println("main.go: Creating widgets...")
+	// --- Create Header ---
+	headerText := widgets.NewText("✨ TinyTUI Interactive Demo ✨").
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorAqua).
+			Background(tinytui.ColorNavy).
+			Bold(true))
 
-	// 1. Title
-	titleText := widgets.NewText("TinyTUI Popup Demo (Esc to Quit)").
-		SetStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorAqua).Bold(true))
+	// --- Create Footer ---
+	footerText := widgets.NewText("Press Tab to navigate | Space/Enter to select | Esc to exit").
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorSilver).
+			Background(tinytui.ColorDarkBlue))
 
-	// 2. Grid Widget
+	// --- Create Grid Widget with prettier, smaller grid ---
 	grid := widgets.NewGrid()
-	grid.SetCellSize(18, 1) // Cell width=18
+	grid.SetCellSize(16, 1) // Smaller cells
 
-	// Create grid data...
-	gridData := make([][]string, 10)
-	for r := 0; r < 10; r++ {
-		gridData[r] = make([]string, 5)
-		for c := 0; c < 5; c++ {
+	// // Color palette for grid items
+	// colorPalette := []tinytui.Color{
+	// 	tinytui.ColorLightGray,
+	// 	tinytui.ColorLightCyan,
+	// 	tinytui.ColorLightGreen,
+	// 	tinytui.ColorLightYellow,
+	// }
+
+	// Create grid data with more interesting names and fewer items
+	gridData := make([][]string, 5) // Smaller grid
+	for r := 0; r < 5; r++ {
+		gridData[r] = make([]string, 4)
+		for c := 0; c < 4; c++ {
 			if r%2 == 0 && c%2 == 0 {
-				gridData[r][c] = fmt.Sprintf("Selectable R%dC%d", r, c)
+				// Make selectable items more distinct
+				gridData[r][c] = fmt.Sprintf("🔹 Option %d-%d", r+1, c+1)
 			} else {
-				gridData[r][c] = fmt.Sprintf("Item R%dC%d", r, c)
+				gridData[r][c] = fmt.Sprintf("⚪ Item %d-%d", r+1, c+1)
 			}
 		}
 	}
 	grid.SetCells(gridData)
-	log.Println("main.go: Grid created and data set.")
 
-	// --- Popup Widgets (Initially Hidden) ---
-	log.Println("main.go: Creating popup widgets...")
-	// Popup Message
-	popupMessage := widgets.NewText("Popup Message Here!")
+	// Customize grid styles
+	grid.SetStyle(tinytui.DefaultStyle.Background(tinytui.ColorDarkBlue))
+	grid.SetSelectedStyle(tinytui.DefaultStyle.
+		Background(tinytui.ColorNavy).
+		Foreground(tinytui.ColorWhite).
+		Bold(true))
 
-	// Popup Sprite (define its data)...
+	// --- Create Info Panel (right side) ---
+	infoTitle := widgets.NewText("Item Details").
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorAqua).
+			Bold(true))
+
+	infoContent := widgets.NewText("Select an item from the grid to view details").
+		SetWrap(true).
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorSilver))
+
+	// Container for info content
+	infoPane := widgets.NewPane()
+	infoPane.SetBorder(true, tinytui.BorderSingle,
+		tinytui.DefaultStyle.Foreground(tinytui.ColorGray))
+
+	// Stack title and content
+	infoLayout := tinytui.NewFlexLayout(tinytui.Vertical).
+		SetGap(1).
+		AddChild(infoTitle, 1, 0).
+		AddChild(infoContent, 0, 1)
+
+	infoPane.SetChild(infoLayout)
+
+	// --- Create Popup Content ---
+	// Popup title with emoji and styled text
+	popupTitle := widgets.NewText("🌟 Interactive Options 🌟").
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorYellow).
+			Bold(true))
+
+	// Popup message with better styling
+	popupMessage := widgets.NewText("Select an action:").
+		SetStyle(tinytui.DefaultStyle.
+			Foreground(tinytui.ColorSilver))
+
+	// Sprite for visual interest
 	spriteData := [][]widgets.SpriteCell{
-		{{Rune: '/', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Background(tinytui.ColorBlack)}, {Rune: '-', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Background(tinytui.ColorBlack)}, {Rune: '\\', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Background(tinytui.ColorBlack)}},
-		{{Rune: '|', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorYellow).Background(tinytui.ColorBlack)}, {Rune: 'X', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorWhite).Background(tinytui.ColorBlack).Bold(true)}, {Rune: '|', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorYellow).Background(tinytui.ColorBlack)}},
-		{{Rune: ' ', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorBlue)}, {Rune: 'O', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorBlue)}, {Rune: ' ', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorBlue)}},
-		{{Rune: '\\', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorGreen).Background(tinytui.ColorBlack)}, {Rune: '_', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorGreen).Background(tinytui.ColorBlack)}, {Rune: '/', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorGreen).Background(tinytui.ColorBlack)}},
+		{
+			{Rune: '╔', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+			{Rune: '═', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+			{Rune: '╗', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+		},
+		{
+			{Rune: '║', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+			{Rune: '◉', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Bold(true)},
+			{Rune: '║', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+		},
+		{
+			{Rune: '╚', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+			{Rune: '═', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+			{Rune: '╝', Style: tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)},
+		},
 	}
+
 	popupSprite := widgets.NewSprite(spriteData)
-	popupSprite.SetVisible(false) // Sprite is initially hidden
+	popupSprite.SetVisible(false) // Initially hidden
 
-	// Popup Button to show sprite
-	showSpriteButton := widgets.NewButton("Show Sprite")
+	// Create buttons with improved styling
+	showSpriteButton := widgets.NewButton("📊 Show Icon")
+	showSpriteButton.SetStyle(tinytui.DefaultStyle.
+		Foreground(tinytui.ColorWhite).
+		Background(tinytui.ColorNavy))
+	showSpriteButton.SetFocusedStyle(tinytui.DefaultStyle.
+		Foreground(tinytui.ColorBlack).
+		Background(tinytui.ColorAqua).
+		Bold(true))
 
-	// Popup Button to close
-	closePopupButton := widgets.NewButton("Close Popup")
+	closePopupButton := widgets.NewButton("✖ Close")
+	closePopupButton.SetStyle(tinytui.DefaultStyle.
+		Foreground(tinytui.ColorWhite).
+		Background(tinytui.ColorMaroon))
+	closePopupButton.SetFocusedStyle(tinytui.DefaultStyle.
+		Foreground(tinytui.ColorWhite).
+		Background(tinytui.ColorRed).
+		Bold(true))
 
-	// Popup Content Layout (Horizontal: Message | Show Button | Close Button | Sprite Area)
-	popupContentLayout := tinytui.NewFlexLayout(tinytui.Horizontal).SetGap(2).
-		AddChild(popupMessage, 0, 1).                 // Message takes proportional space
-		AddChild(showSpriteButton, 15, 0).            // Give buttons fixed width
-		AddChild(closePopupButton, 15, 0).            // Give buttons fixed width
-		AddChild(popupSprite, popupSprite.Width(), 0) // Sprite fixed width based on data
+	// Create a button layout with better spacing and alignment
+	buttonsLayout := tinytui.NewFlexLayout(tinytui.Horizontal).
+		SetGap(2).
+		SetMainAxisAlignment(tinytui.AlignCenter).
+		SetCrossAxisAlignment(tinytui.AlignCenter).
+		AddChildWithAlign(showSpriteButton, 0, 0, tinytui.AlignCenter).
+		AddChildWithAlign(closePopupButton, 0, 0, tinytui.AlignCenter)
 
-	// --- Create Pane for Popup ---
+	// Arrange sprite in its own centered container
+	spriteLayout := tinytui.NewFlexLayout(tinytui.Vertical).
+		SetMainAxisAlignment(tinytui.AlignCenter).
+		SetCrossAxisAlignment(tinytui.AlignCenter).
+		AddChildWithAlign(popupSprite, 0, 0, tinytui.AlignCenter)
+
+	// Main popup content layout
+	popupContentLayout := tinytui.NewFlexLayout(tinytui.Vertical).
+		SetGap(1).
+		AddChild(popupTitle, 1, 0).
+		AddChild(popupMessage, 1, 0).
+		AddChild(buttonsLayout, 2, 0).
+		AddChild(spriteLayout, 3, 0)
+
+	// Create nicer popup pane
 	popupPane := widgets.NewPane()
-	popupPane.SetBorder(true, tinytui.BorderDouble, tinytui.DefaultStyle.Foreground(tinytui.ColorAqua))
-	popupPane.SetChild(popupContentLayout) // Use SetChild to put the layout inside the pane
-	popupPane.SetVisible(false)            // Pane is initially hidden
-	log.Println("main.go: Popup widgets created.")
+	popupPane.SetStyle(tinytui.DefaultStyle.Background(tinytui.ColorDarkBlue))
+	popupPane.SetBorder(true, tinytui.BorderDouble,
+		tinytui.DefaultStyle.Foreground(tinytui.ColorAqua).Bold(true))
+	popupPane.SetChild(popupContentLayout)
+	popupPane.SetVisible(false) // Initially hidden
 
-	// --- Define Interactions (Dispatch Closures) ---
-	log.Println("main.go: Defining interactions...")
+	// --- Define Interactions ---
+
 	// Grid selection handler
 	grid.SetOnSelect(func(row, col int, item string) {
-		log.Printf("Grid item selected: Row %d, Col %d, Item '%s'\n", row, col, item)
-		if len(item) > 10 && item[:10] == "Selectable" {
-			// --- Capture variables needed for closures ---
-			msgWidget := popupMessage
-			newContent := fmt.Sprintf("Selected '%s'", item)
-			spriteWidget := popupSprite
-			paneWidget := popupPane
-			focusTarget := showSpriteButton
-			// --- End Capture ---
+		// Update info panel
+		infoContent.SetContent(fmt.Sprintf(
+			"Selected: %s\n\nPosition: Row %d, Column %d\n\nThis item %s be used with the interactive options.",
+			item, row+1, col+1,
+			map[bool]string{true: "can", false: "cannot"}[row%2 == 0 && col%2 == 0],
+		))
 
-			// Dispatch function to update text
+		// Only show popup for "Option" items
+		if row%2 == 0 && col%2 == 0 {
+			// Update popup message
+			popupMessage.SetContent(fmt.Sprintf("You selected: %s", item))
+
+			// Hide sprite
+			popupSprite.SetVisible(false)
+
+			// Show popup and set focus
 			app.Dispatch(func(app *tinytui.Application) {
-				// Direct assignment works if *widgets.Text implements TextUpdater
-				var updater tinytui.TextUpdater = msgWidget
-				if updater != nil {
-					updater.SetContent(newContent) // Call interface method
-				} else { // Should not happen if Text implements TextUpdater
-					log.Printf("Error: msgWidget (*widgets.Text) does not implement TextUpdater?")
-				}
+				popupPane.SetVisible(true)
+				app.SetModalRoot(popupPane)
+				app.SetFocus(showSpriteButton)
 			})
-
-			// Dispatch function to hide sprite
-			app.Dispatch(func(app *tinytui.Application) {
-				spriteWidget.SetVisible(false)
-			})
-
-			// Dispatch function to show modal pane and set focus
-			app.Dispatch(func(app *tinytui.Application) {
-				paneWidget.SetVisible(true)
-				app.SetModalRoot(paneWidget) // Use method to set modal root
-				app.SetFocus(focusTarget)    // Set focus
-			})
-
-			log.Println("Dispatched actions to show popup")
-		} else {
-			log.Println("Non-selectable item chosen.")
 		}
 	})
 
-	// Popup button handler (Show Sprite)
+	// Popup button handlers
 	showSpriteButton.SetOnClick(func() {
-		log.Println("Show Sprite button clicked")
-		spriteWidget := popupSprite
 		app.Dispatch(func(app *tinytui.Application) {
-			spriteWidget.SetVisible(true)
+			popupSprite.SetVisible(true)
 		})
 	})
 
-	// Popup button handler (Close)
 	closePopupButton.SetOnClick(func() {
-		log.Println("Close Popup button clicked")
-		returnTarget := grid
-		paneWidget := popupPane
 		app.Dispatch(func(app *tinytui.Application) {
-			log.Println("Action: Dispatching ClearModalRoot via Button")
 			app.ClearModalRoot()
-			if paneWidget != nil {
-				paneWidget.SetVisible(false)
-			}
-			app.SetFocus(returnTarget)
+			popupPane.SetVisible(false)
 		})
 	})
-	log.Println("main.go: Interactions defined.")
 
-	// --- Main Layout ---
-	log.Println("main.go: Creating main layout...")
-	// Vertical: Title, Grid, Popup Area (Pane is initially invisible)
-	layout := tinytui.NewFlexLayout(tinytui.Vertical).
-		AddChild(titleText, 1, 0). // Fixed height 1
-		AddChild(grid, 0, 1).      // Grid takes proportional space
-		AddChild(popupPane, 7, 0)  // Add Pane, give it fixed height (adjust as needed)
-	log.Println("main.go: Main layout created.")
+	// --- Create Main Layout ---
+
+	// Create split main content area (grid + info panel side by side)
+	contentLayout := tinytui.NewFlexLayout(tinytui.Horizontal).
+		SetGap(1).
+		AddChild(grid, 0, 3).    // Grid takes 3/4 of space
+		AddChild(infoPane, 0, 1) // Info takes 1/4 of space
+
+	// Main vertical layout
+	mainLayout := tinytui.NewFlexLayout(tinytui.Vertical).
+		AddChild(headerText, 1, 0).    // Fixed height header
+		AddChild(contentLayout, 0, 1). // Content takes all available space
+		AddChild(footerText, 1, 0).    // Fixed height footer
+		AddChild(popupPane, 10, 0)     // Fixed height for popup
 
 	// --- Set Root and Run ---
-	log.Println("main.go: Calling app.SetRoot()...")
-	app.SetRoot(layout, true)
-	log.Println("main.go: app.SetRoot() finished.")
-
-	// --- Remove Manual Focus Test ---
-	// log.Println("main.go: Manually calling SetFocus on grid before Run()")
-	// app.SetFocus(grid)
-	// --- End Remove Manual Focus Test ---
-
-	// --- Add a small delay and log focus state *before* Run ---
-	// This is a HACK to see if the initial focus finding in SetRoot worked,
-	// but it relies on timing and isn't guaranteed to run before Run's internal dispatch.
-	log.Println("main.go: Pausing briefly before Run...")
-	time.Sleep(100 * time.Millisecond) // Small delay
-	// We cannot directly access app.focused here as it's unexported and protected.
-	// We could add a public GetFocused() method to Application for debugging,
-	// but sticking to logging *within* main.go for now.
-	log.Println("main.go: Pause finished. Calling app.Run()...")
-	// --- End Delay ---
+	app.SetRoot(mainLayout, true)
 
 	if err := app.Run(); err != nil {
-		log.Fatalf("Error running application: %v", err)
+		fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
+		os.Exit(1)
 	}
-
-	log.Println("--- Application Stopped ---")
 }

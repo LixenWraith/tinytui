@@ -38,6 +38,9 @@ const (
 	ColorDarkBlue      Color = tcell.ColorDarkBlue
 	ColorDarkGoldenrod Color = tcell.ColorDarkGoldenrod
 	ColorDarkSlateGray Color = tcell.ColorDarkSlateGray
+	ColorLightCyan     Color = tcell.ColorLightCyan
+	ColorLightGreen    Color = tcell.ColorLightGreen
+	ColorLightYellow   Color = tcell.ColorLightYellow
 	// Add more named colors as needed
 )
 

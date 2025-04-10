@@ -76,4 +76,10 @@ type Widget interface {
 
 	// SetVisible sets the local visibility state of the widget.
 	SetVisible(visible bool)
+
+	// PreferredWidth returns the widget's desired width, used for layout calculations
+	PreferredWidth() int
+
+	// PreferredHeight returns the widget's desired height, used for layout calculations
+	PreferredHeight() int
 }

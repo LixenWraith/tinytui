@@ -102,6 +102,29 @@ func (b *Button) SetOnClick(handler func()) *Button {
 	return b
 }
 
+func (b *Button) PreferredWidth() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	label := b.label
+
+	// Base width: label plus some padding (2 spaces on each side)
+	width := runewidth.StringWidth(label) + 4
+
+	// Consider indicators if enabled
+	if b.indicator != 0 && b.indicatorPos != IndicatorNone {
+		indicatorWidth := runewidth.RuneWidth(b.indicator)
+		width += indicatorWidth + 1 // Add indicator width + space
+	}
+
+	return width
+}
+
+func (b *Button) PreferredHeight() int {
+	// Buttons typically are 1 line high
+	return 1
+}
+
 // Draw draws the button.
 func (b *Button) Draw(screen tcell.Screen) {
 	x, y, width, height := b.GetRect()
