@@ -24,7 +24,7 @@ type Text struct {
 func NewText(content string) *Text {
 	t := &Text{
 		content: content,
-		style:   tinytui.DefaultStyle,
+		style:   tinytui.DefaultTextStyle(),
 		wrap:    false,
 		lines:   nil,
 	}
@@ -47,7 +47,12 @@ func (t *Text) SetContent(content string) {
 	if app := t.App(); app != nil {
 		app.QueueRedraw()
 	}
-	// No longer returns t
+}
+
+func (t *Text) GetContent() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.content
 }
 
 // SetStyle sets the style used to draw the text.
@@ -60,6 +65,11 @@ func (t *Text) SetStyle(style tinytui.Style) *Text {
 		app.QueueRedraw()
 	}
 	return t
+}
+
+// ApplyTheme applies the provided theme to the Text widget
+func (t *Text) ApplyTheme(theme tinytui.Theme) {
+	t.SetStyle(theme.TextStyle())
 }
 
 // SetWrap enables or disables word wrapping.

@@ -37,10 +37,10 @@ type Button struct {
 func NewButton(label string) *Button {
 	b := &Button{
 		label:        label,
-		style:        tinytui.DefaultStyle,
-		focusedStyle: tinytui.DefaultStyle.Reverse(true), // Default focus: reverse video
-		indicator:    '>',                                // Default indicator
-		indicatorPos: IndicatorLeft,                      // Default position
+		style:        tinytui.DefaultButtonStyle(),
+		focusedStyle: tinytui.DefaultButtonFocusedStyle(),
+		indicator:    '>',           // Default indicator
+		indicatorPos: IndicatorLeft, // Default position
 		onClick:      nil,
 	}
 	b.SetVisible(true) // Explicitly set visibility
@@ -67,6 +67,12 @@ func (b *Button) SetStyle(style tinytui.Style) *Button {
 		b.App().QueueRedraw()
 	}
 	return b
+}
+
+// ApplyTheme applies the provided theme to the Button widget
+func (b *Button) ApplyTheme(theme tinytui.Theme) {
+	b.SetStyle(theme.ButtonStyle())
+	b.SetFocusedStyle(theme.ButtonFocusedStyle())
 }
 
 // SetFocusedStyle sets the style used when the button has focus.

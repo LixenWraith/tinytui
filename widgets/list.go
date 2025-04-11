@@ -28,8 +28,8 @@ func NewList() *List {
 		items:         []string{},
 		selectedIndex: -1,
 		topIndex:      0,
-		style:         tinytui.DefaultStyle,
-		selectedStyle: tinytui.DefaultStyle.Reverse(true), // Default selection is reversed
+		style:         tinytui.DefaultListStyle(),
+		selectedStyle: tinytui.DefaultListSelectedStyle(),
 	}
 	l.SetVisible(true) // Explicitly set visibility
 	return l
@@ -67,6 +67,12 @@ func (l *List) SetStyle(style tinytui.Style) *List {
 		app.QueueRedraw()
 	}
 	return l
+}
+
+// ApplyTheme applies the provided theme to the List widget
+func (l *List) ApplyTheme(theme tinytui.Theme) {
+	l.SetStyle(theme.ListStyle())
+	l.SetSelectedStyle(theme.ListSelectedStyle())
 }
 
 // SetSelectedStyle sets the style for the selected list item.

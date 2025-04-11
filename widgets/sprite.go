@@ -31,7 +31,6 @@ func NewSprite(data [][]SpriteCell) *Sprite {
 		cells: data,
 	}
 	s.SetVisible(true) // Explicitly set visibility
-	// Initial SetRect will be called by the layout later
 	return s
 }
 
@@ -78,7 +77,7 @@ func (s *Sprite) Draw(screen tcell.Screen) {
 	}
 	spriteWidth := 0
 	if spriteHeight > 0 {
-		spriteWidth = len(cellsData[0]) // Assume rectangular
+		spriteWidth = len(cellsData[0])
 	}
 	if spriteWidth == 0 {
 		return
@@ -152,7 +151,7 @@ func (s *Sprite) Width() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.cells) > 0 {
-		return len(s.cells[0]) // Assume rectangular
+		return len(s.cells[0])
 	}
 	return 0
 }

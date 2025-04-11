@@ -30,14 +30,14 @@ type Pane struct {
 // NewPane creates a new Pane widget.
 func NewPane() *Pane {
 	p := &Pane{
-		style:      tinytui.DefaultStyle,
+		style:      tinytui.DefaultPaneStyle(),
 		border:     false,
-		borderType: tinytui.BorderNone,
-		// Default border style is the same as content style initially
-		borderStyle: tinytui.DefaultStyle,
+		borderType: tinytui.DefaultBorderType(),
+		// Use theme border style
+		borderStyle: tinytui.DefaultPaneBorderStyle(),
 	}
-	// Set a default focus border style (e.g., bright yellow foreground)
-	p.focusBorderStyle = tinytui.DefaultStyle.Foreground(tinytui.ColorYellow).Bold(true)
+	// Set a default focus border style from theme
+	p.focusBorderStyle = tinytui.DefaultPaneFocusBorderStyle()
 	p.originalBorderStyle = p.borderStyle // Initialize original style
 	p.SetVisible(true)                    // Explicitly set visibility
 	return p
@@ -64,6 +64,16 @@ func (p *Pane) SetStyle(style tinytui.Style) *Pane {
 	return p
 }
 
+// ApplyTheme applies the provided theme to the Pane widget
+func (p *Pane) ApplyTheme(theme tinytui.Theme) {
+	p.SetStyle(theme.PaneStyle())
+	hasBorder := p.HasBorder()
+	if hasBorder {
+		p.SetBorder(true, theme.DefaultBorderType(), theme.PaneBorderStyle())
+	}
+	p.SetFocusBorderStyle(theme.PaneFocusBorderStyle())
+}
+
 // SetBorder configures the pane's border.
 // - enabled: Show or hide the border.
 // - borderType: The style of the border lines (Single, Double, etc.).
@@ -84,6 +94,12 @@ func (p *Pane) SetBorder(enabled bool, borderType tinytui.BorderType, style tiny
 		app.QueueRedraw()
 	}
 	return p
+}
+
+func (p *Pane) HasBorder() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.border
 }
 
 // SetFocusBorderStyle allows customizing the border appearance when the pane is focused.

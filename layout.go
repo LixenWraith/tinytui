@@ -66,6 +66,13 @@ func NewFlexLayout(orientation Orientation) *FlexLayout {
 	return l
 }
 
+// ApplyTheme applies the provided theme to the FlexLayout widget
+// FlexLayout doesn't have visual styles of its own, so it just passes the theme to children
+func (l *FlexLayout) ApplyTheme(theme Theme) {
+	// FlexLayout doesn't have its own style to update
+	// Children will be handled by the recursive application logic
+}
+
 // AddChild adds a widget to the layout.
 //   - widget: The Widget to add.
 //   - fixedSize: The fixed width (if Horizontal) or height (if Vertical).

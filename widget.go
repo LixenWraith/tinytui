@@ -20,6 +20,12 @@ type TextUpdater interface {
 
 // --- End TextUpdater Interface ---
 
+type ThemedWidget interface {
+	Widget
+	// ApplyTheme applies the current theme to the widget
+	ApplyTheme(theme Theme)
+}
+
 // Widget is the core interface for all drawable and interactive elements.
 type Widget interface {
 	// Draw renders the widget onto the provided screen within its bounds.
@@ -81,6 +87,9 @@ type Widget interface {
 	// of its ancestors are invisible.
 	// Setting a widget to invisible will blur it if currently focused.
 	SetVisible(visible bool)
+
+	// ApplyTheme applies the current theme to the widget
+	ApplyTheme(theme Theme)
 
 	// PreferredWidth returns the widget's desired width, used for layout calculations
 	PreferredWidth() int

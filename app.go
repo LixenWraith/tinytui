@@ -24,19 +24,32 @@ type Application struct {
 	focusableCache map[Widget][]Widget // Cache of focusable widgets by parent
 	cacheValid     bool                // Whether the cache is valid
 
+	// Theme related
+	theme         Theme       // Current application theme
+	themeListener func(Theme) // Function to handle theme changes
+
 	mu sync.Mutex // Protects access to screen, root, focused, modalRoot
 }
 
 // NewApplication creates and initializes a new TUI application.
 func NewApplication() *Application {
-	return &Application{
+	app := &Application{
 		events:         make(chan tcell.Event, 10),
 		actionChan:     make(chan func(*Application), 10),
 		stop:           make(chan struct{}),
 		redraw:         make(chan struct{}, 1),
 		focusableCache: make(map[Widget][]Widget),
 		cacheValid:     false,
+		theme:          GetTheme(),
 	}
+	app.themeListener = func(theme Theme) {
+		app.mu.Lock()
+		app.theme = theme
+		app.mu.Unlock()
+		app.QueueRedraw()
+	}
+	SubscribeThemeChange(app.themeListener)
+	return app
 }
 
 // Dispatch sends a function to be executed safely within the main application loop.
@@ -81,6 +94,67 @@ func (a *Application) SetRoot(widget Widget, fullscreen bool) *Application {
 	}
 	a.QueueRedraw() // Queue redraw when root changes
 	return a
+}
+
+// SetTheme changes the application's theme
+func (a *Application) SetTheme(name ThemeName) bool {
+	if !SetTheme(name) {
+		return false
+	}
+
+	a.mu.Lock()
+	a.theme = GetTheme()
+	a.mu.Unlock()
+
+	// Apply theme to all widgets
+	a.ApplyThemeToWidgets()
+	// a.QueueRedraw()
+
+	return true
+}
+
+// GetTheme returns the application's current theme
+func (a *Application) GetTheme() Theme {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.theme
+}
+
+// ApplyThemeToWidgets applies the current theme to all widgets in the application
+func (a *Application) ApplyThemeToWidgets() {
+	a.mu.Lock()
+	root := a.root
+	theme := a.theme
+	a.mu.Unlock()
+
+	if root == nil || theme == nil {
+		return
+	}
+
+	// Recursively apply theme to all widgets
+	applyThemeToWidget(root, theme)
+
+	// Queue redraw to reflect changes
+	a.QueueRedraw()
+}
+
+// applyThemeToWidget applies the theme to a widget and its children
+func applyThemeToWidget(w Widget, theme Theme) {
+	if w == nil {
+		return
+	}
+
+	// If the widget implements the ThemedWidget interface, apply the theme
+	if themedWidget, ok := w.(ThemedWidget); ok {
+		themedWidget.ApplyTheme(theme)
+	}
+
+	// Recursively apply to children
+	if children := w.Children(); children != nil {
+		for _, child := range children {
+			applyThemeToWidget(child, theme)
+		}
+	}
 }
 
 // handleAction executes the dispatched function.

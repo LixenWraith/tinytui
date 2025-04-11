@@ -9,13 +9,6 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-const (
-	// DefaultGridCellHeight defines the default height for grid cells.
-	DefaultGridCellHeight = 1
-	// DefaultGridCellWidth defines the default width for grid cells.
-	DefaultGridCellWidth = 10
-)
-
 // Grid displays a 2D grid of text items, allowing navigation and selection.
 type Grid struct {
 	tinytui.BaseWidget
@@ -44,10 +37,10 @@ func NewGrid() *Grid {
 		selectedCol:   -1,
 		topRow:        0,
 		leftCol:       0,
-		cellHeight:    DefaultGridCellHeight, // Use constant
-		cellWidth:     DefaultGridCellWidth,  // Use constant
-		style:         tinytui.DefaultStyle,
-		selectedStyle: tinytui.DefaultStyle.Reverse(true),
+		cellHeight:    tinytui.DefaultCellHeight(),
+		cellWidth:     tinytui.DefaultCellWidth(),
+		style:         tinytui.DefaultGridStyle(),
+		selectedStyle: tinytui.DefaultGridSelectedStyle(),
 	}
 	g.SetVisible(true) // Explicitly set visibility
 	return g
@@ -111,6 +104,14 @@ func (g *Grid) SetStyle(style tinytui.Style) *Grid {
 		app.QueueRedraw()
 	}
 	return g
+}
+
+// ApplyTheme applies the provided theme to the Grid widget
+func (g *Grid) ApplyTheme(theme tinytui.Theme) {
+	g.SetStyle(theme.GridStyle())
+	g.SetSelectedStyle(theme.GridSelectedStyle())
+	// Optional: Update cell size to theme defaults
+	// g.SetCellSize(theme.DefaultCellWidth(), theme.DefaultCellHeight())
 }
 
 // SetSelectedStyle sets the style for the selected cell.
