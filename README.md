@@ -11,6 +11,7 @@ TinyTUI is a lightweight, flexible terminal UI library for Go applications that 
 - **Lightweight**: Minimal dependencies, focusing on core UI functionality
 - **Flexible Layout System**: CSS-like flexbox-inspired layouts with alignment controls
 - **Rich Widget Set**: Buttons, text areas, grids, lists, panes, and more
+- **Comprehensive Theming**: Built-in theme system with prefab themes and custom theme support
 - **Styling & Theming**: Comprehensive styling options with colors and text attributes
 - **Event Handling**: Keyboard and mouse event handling with focus management
 - **Modal Dialogs**: Support for modal interfaces with proper focus handling
@@ -81,10 +82,12 @@ The `Application` is the main controller that:
 - Processes events
 - Controls the widget hierarchy
 - Handles focus navigation
+- Manages themes
 
 ```go
 app := tinytui.NewApplication()
 app.SetRoot(rootWidget, true)
+app.SetTheme(tinytui.ThemeBorland) // Apply a theme
 app.Run()
 ```
 
@@ -109,6 +112,8 @@ type Widget interface {
     SetParent(parent Widget)
     IsVisible() bool
     SetVisible(visible bool)
+    PreferredWidth() int
+    PreferredHeight() int
 }
 ```
 
@@ -159,6 +164,67 @@ button.SetKeybinding(tcell.KeyRune, tcell.ModNone, func() bool {
 })
 ```
 
+## Theme System
+
+TinyTUI includes a comprehensive theme system that provides consistent styling across your application:
+
+### Built-in Themes
+
+TinyTUI comes with several built-in themes:
+
+- **Default**: Basic theme using terminal defaults
+- **Tokyo Night**: Dark theme with blue and purple accents
+- **Catppuccin Mocha**: Modern dark theme with pastel colors
+- **Borland**: Classic blue background with white text reminiscent of 1990s DOS applications
+
+### Using Themes
+
+```go
+// At application startup
+app := tinytui.NewApplication()
+app.SetTheme(tinytui.ThemeBorland)
+
+// Or change the theme at runtime
+app.SetTheme(tinytui.ThemeTokyoNight)
+```
+
+### Creating Custom Themes
+
+Create your own theme by implementing the Theme interface:
+
+```go
+type CustomTheme struct {
+    tinytui.BaseTheme
+}
+
+// Override any methods needed...
+func (t *CustomTheme) Name() tinytui.ThemeName {
+    return "custom-theme"
+}
+
+func (t *CustomTheme) TextStyle() tinytui.Style {
+    return tinytui.DefaultStyle.
+        Foreground(tinytui.ColorWhite).
+        Background(tinytui.ColorNavy)
+}
+
+// Register the theme
+tinytui.RegisterTheme(&CustomTheme{})
+```
+
+### Widget Theme Integration
+
+Widgets automatically use the current theme's styles. You can also access theme styles directly:
+
+```go
+// Create a widget with themed style
+text := widgets.NewText("Themed Text")
+
+// Override with a custom style based on theme
+button := widgets.NewButton("Themed Button").
+    SetStyle(tinytui.DefaultButtonStyle().Bold(true))
+```
+
 ## Layout System
 
 TinyTUI's layout system is inspired by CSS Flexbox:
@@ -192,7 +258,7 @@ dialogContent := tinytui.NewFlexLayout(tinytui.Vertical).
     AddChildWithAlign(buttonsLayout, 3, 0, tinytui.AlignCenter)
 
 dialogPane := widgets.NewPane().
-    SetBorder(true, tinytui.BorderDouble, tinytui.DefaultStyle.Foreground(tinytui.ColorAqua)).
+    SetBorder(true, tinytui.BorderDouble, tinytui.DefaultPaneBorderStyle()).
     SetChild(dialogContent)
 ```
 
@@ -203,17 +269,17 @@ TinyTUI provides comprehensive styling options:
 ```go
 // Create styled text
 titleText := widgets.NewText("Application Title").
-    SetStyle(tinytui.DefaultStyle.
+    SetStyle(tinytui.DefaultTextStyle().
         Foreground(tinytui.ColorWhite).
         Background(tinytui.ColorBlue).
         Bold(true))
 
 // Style a button
 button := widgets.NewButton("Save").
-    SetStyle(tinytui.DefaultStyle.
+    SetStyle(tinytui.DefaultButtonStyle().
         Foreground(tinytui.ColorWhite).
         Background(tinytui.ColorGreen)).
-    SetFocusedStyle(tinytui.DefaultStyle.
+    SetFocusedStyle(tinytui.DefaultButtonFocusedStyle().
         Foreground(tinytui.ColorGreen).
         Background(tinytui.ColorWhite).
         Bold(true))
@@ -270,6 +336,8 @@ go func() {
 3. **Visibility Before Focus**: Only focus visible and focusable widgets
 4. **Widget Reuse**: Structure your code to reuse widget trees for common patterns
 5. **Error Handling**: Always check errors returned by `app.Run()`
+6. **Consistent Theming**: Use the theme system for consistent styling across your application
+7. **Layout Spacing**: Use spacer widgets and proper gaps to ensure good UI spacing
 
 ## Common Patterns
 
@@ -293,7 +361,7 @@ func bindModelToForm(model *Model, nameText, emailText *widgets.Text) {
 
 ### Custom Widgets
 
-Create custom widgets by embedding `BaseWidget`:
+Create custom widgets by embedding `BaseWidget` and implementing `ThemedWidget`:
 
 ```go
 type ColorPicker struct {
@@ -301,18 +369,56 @@ type ColorPicker struct {
     colors []tinytui.Color
     selected int
     onChange func(tinytui.Color)
+    style tinytui.Style
 }
 
 func NewColorPicker(colors []tinytui.Color) *ColorPicker {
     cp := &ColorPicker{
         colors: colors,
         selected: 0,
+        style: tinytui.DefaultStyle,
     }
     cp.SetVisible(true)
     return cp
 }
 
 // Implement required methods: Draw, HandleEvent, etc.
+
+// Implement ApplyTheme for theme support
+func (cp *ColorPicker) ApplyTheme(theme tinytui.Theme) {
+    cp.style = theme.TextStyle()
+    if app := cp.App(); app != nil {
+        app.QueueRedraw()
+    }
+}
+```
+
+## Theme Examples
+
+Here are examples of how different built-in themes look:
+
+### Default Theme
+```
+┌───────────────────┐
+│ Simple Form       │
+├───────────────────┤
+│ Name: [John Doe]  │
+│ Age:  [35]        │
+│                   │
+│ [  OK  ] [Cancel] │
+└───────────────────┘
+```
+
+### Borland Theme
+```
+╔═══════════════════╗
+║ Simple Form       ║
+╠═══════════════════╣
+║ Name: [John Doe]  ║
+║ Age:  [35]        ║
+║                   ║
+║ [  OK  ] [Cancel] ║
+╚═══════════════════╝
 ```
 
 ## License
