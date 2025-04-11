@@ -101,13 +101,29 @@ func (t *Text) recalculateLines() {
 		return
 	}
 
+	// Apply padding (1 character on each side) for wrapping calculation
+	paddingX := 1 * 2 // 1 character padding on each side
+
+	// Ensure we have at least minimal width for wrapping
+	effectiveWidth := width - paddingX
+	if effectiveWidth < 1 {
+		effectiveWidth = 1
+	}
+
 	if !t.wrap {
 		// No wrapping, just split by explicit newlines
 		t.lines = strings.Split(t.content, "\n")
+
+		// Even for non-wrapped text, ensure each line respects width limits
+		for i, line := range t.lines {
+			if runewidth.StringWidth(line) > effectiveWidth {
+				t.lines[i] = runewidth.Truncate(line, effectiveWidth, "")
+			}
+		}
 		return
 	}
 
-	// --- Word wrapping logic (adopted from context version) ---
+	// --- Word wrapping logic (improved version) ---
 	var calculatedLines []string
 	paragraphs := strings.Split(t.content, "\n") // Handle explicit newlines first
 
@@ -130,19 +146,20 @@ func (t *Text) recalculateLines() {
 			wordWidth := runewidth.StringWidth(word)
 
 			// If the word itself is wider than the available width, it needs hard break
-			if wordWidth > width {
+			if wordWidth > effectiveWidth {
 				// Break the long word
 				if currentLineWidth > 0 { // Add the current line before breaking word
 					calculatedLines = append(calculatedLines, currentLine)
 					currentLine = ""
 					currentLineWidth = 0
 				}
+
 				// Hard break the word character by character
 				brokenWordPart := ""
 				brokenWordWidth := 0
 				for _, r := range word {
 					rw := runewidth.RuneWidth(r)
-					if brokenWordWidth+rw > width {
+					if brokenWordWidth+rw > effectiveWidth {
 						calculatedLines = append(calculatedLines, brokenWordPart)
 						brokenWordPart = string(r)
 						brokenWordWidth = rw
@@ -164,7 +181,7 @@ func (t *Text) recalculateLines() {
 				separatorWidth = 1 // Space separator
 			}
 
-			if currentLineWidth+separatorWidth+wordWidth <= width {
+			if currentLineWidth+separatorWidth+wordWidth <= effectiveWidth {
 				// Word fits
 				if currentLineWidth > 0 {
 					currentLine += " "
@@ -185,7 +202,7 @@ func (t *Text) recalculateLines() {
 	}
 
 	t.lines = calculatedLines
-	// --- End word wrapping logic ---
+	// --- End improved word wrapping logic ---
 }
 
 // Draw draws the text content within the widget's bounds.
@@ -223,21 +240,27 @@ func (t *Text) Draw(screen tcell.Screen) {
 	linesToDraw := t.lines
 	t.mu.RUnlock() // Unlock after accessing shared data
 
-	// Fill background first (optional, depends on desired behavior)
-	// tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
+	// Fill background first to ensure clean canvas
+	tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
 
-	// Draw the lines
+	// Draw the lines - IMPORTANT: Respect container width
 	for i, line := range linesToDraw {
 		if i >= height {
 			break // Don't draw more lines than the widget's height
 		}
-		// DrawText handles clipping within the line's width
-		tinytui.DrawText(screen, x, y+i, currentStyle, line)
-	}
 
-	// Clear remaining lines if content is shorter than height
-	for i := len(linesToDraw); i < height; i++ {
-		tinytui.Fill(screen, x, y+i, width, 1, ' ', currentStyle)
+		// Account for some padding (1 character on each side)
+		paddingX := 1
+		effectiveWidth := width - (paddingX * 2)
+		if effectiveWidth < 1 {
+			effectiveWidth = 1 // Minimum width
+		}
+
+		// Ensure the text doesn't extend beyond the widget's width minus padding
+		displayText := runewidth.Truncate(line, effectiveWidth, "")
+
+		// Draw text with padding from left edge
+		tinytui.DrawText(screen, x+paddingX, y+i, currentStyle, displayText)
 	}
 }
 

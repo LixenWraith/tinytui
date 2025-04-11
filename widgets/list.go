@@ -232,14 +232,6 @@ func (l *List) Draw(screen tcell.Screen) {
 	}
 
 	l.mu.RLock() // Read lock for accessing items and indices
-
-	// Ensure indices are valid before drawing (important after resize)
-	// Need write lock for clampIndices, so do it carefully
-	// This pattern is a bit complex; ideally SetRect would handle clamping.
-	// Let's assume SetRect calls clampIndices or redraw triggers it.
-	// For safety, we can re-check here but it's less efficient.
-	// RUnlock -> Lock -> clampIndices -> Unlock -> RLock (or just Lock/Unlock)
-
 	itemsToDraw := l.items
 	selIdx := l.selectedIndex
 	topIdx := l.topIndex
@@ -247,8 +239,16 @@ func (l *List) Draw(screen tcell.Screen) {
 	selectedStyle := l.selectedStyle
 	l.mu.RUnlock() // Release lock after getting needed data
 
-	// Fill the background (optional, could be transparent)
-	// tinytui.Fill(screen, x, y, width, height, ' ', baseStyle)
+	// Fill the entire background with the base style
+	// This ensures consistent appearance even with partial item lists
+	tinytui.Fill(screen, x, y, width, height, ' ', baseStyle)
+
+	// Add some padding for better readability
+	padding := 1
+	effectiveWidth := width - (padding * 2)
+	if effectiveWidth < 1 {
+		effectiveWidth = 1
+	}
 
 	// Draw visible items
 	for i := 0; i < height; i++ {
@@ -262,36 +262,24 @@ func (l *List) Draw(screen tcell.Screen) {
 				style = selectedStyle
 			}
 
-			// Clear the line first with the chosen style's background
+			// Clear the line with the style's background
 			tinytui.Fill(screen, x, drawY, width, 1, ' ', style)
 
-			// Draw the text, truncating if necessary
-			// DrawText handles basic screen boundary clipping, but we might want "..."
-			col := x
-			// Simple truncation:
-			availableWidth := width
-			displayText := item
-			if runewidth.StringWidth(item) > availableWidth {
-				// Basic truncation - find where to cut
-				currentW := 0
-				cutIndex := 0
-				for j, r := range item {
-					rw := runewidth.RuneWidth(r)
-					if currentW+rw > availableWidth {
-						break
-					}
-					currentW += rw
-					cutIndex = j + 1
-				}
-				displayText = item[:cutIndex]
-				// Could add "..." if space permits:
-				// if runewidth.StringWidth(displayText)+1 <= availableWidth { displayText += "…" }
+			// Item indicator for selected items (shows focus clearly)
+			if itemIndex == selIdx {
+				// Draw a focus indicator
+				screen.SetContent(x, drawY, '>', nil, style.ToTcell())
+				padding = 2 // More padding when showing indicator
 			}
-			tinytui.DrawText(screen, col, drawY, style, displayText)
 
-		} else {
-			// Clear lines below the last item
-			tinytui.Fill(screen, x, drawY, width, 1, ' ', baseStyle)
+			// Truncate text if needed and draw with padding
+			displayText := item
+			if runewidth.StringWidth(item) > effectiveWidth {
+				displayText = runewidth.Truncate(item, effectiveWidth, "")
+			}
+
+			// Draw the item text with padding
+			tinytui.DrawText(screen, x+padding, drawY, style, displayText)
 		}
 	}
 }

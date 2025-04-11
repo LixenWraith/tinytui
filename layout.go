@@ -241,7 +241,7 @@ func (l *FlexLayout) SetRect(x, y, width, height int) {
 		currentPos += y
 	}
 
-	// Position each child based on alignments
+	// Position each child based on alignments, ensuring they don't exceed container bounds
 	for i, info := range visibleChildren {
 		childWidth := width
 		childHeight := height
@@ -306,8 +306,21 @@ func (l *FlexLayout) SetRect(x, y, width, height int) {
 			currentPos += childHeight + l.gap
 		}
 
+		// Ensure we don't allocate more space than the container has
+		if childX+childWidth > x+width {
+			childWidth = (x + width) - childX
+		}
+		if childY+childHeight > y+height {
+			childHeight = (y + height) - childY
+		}
+
 		// Apply the calculated position and size
-		info.Widget.SetRect(childX, childY, childWidth, childHeight)
+		if childWidth > 0 && childHeight > 0 {
+			info.Widget.SetRect(childX, childY, childWidth, childHeight)
+		} else {
+			// If dimensions are invalid, set to zero size to prevent drawing
+			info.Widget.SetRect(childX, childY, 0, 0)
+		}
 	}
 }
 

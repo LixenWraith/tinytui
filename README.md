@@ -393,34 +393,6 @@ func (cp *ColorPicker) ApplyTheme(theme tinytui.Theme) {
 }
 ```
 
-## Theme Examples
-
-Here are examples of how different built-in themes look:
-
-### Default Theme
-```
-┌───────────────────┐
-│ Simple Form       │
-├───────────────────┤
-│ Name: [John Doe]  │
-│ Age:  [35]        │
-│                   │
-│ [  OK  ] [Cancel] │
-└───────────────────┘
-```
-
-### Borland Theme
-```
-╔═══════════════════╗
-║ Simple Form       ║
-╠═══════════════════╣
-║ Name: [John Doe]  ║
-║ Age:  [35]        ║
-║                   ║
-║ [  OK  ] [Cancel] ║
-╚═══════════════════╝
-```
-
 ## License
 
 BSD-3

@@ -154,10 +154,16 @@ func createContentArea() *widgets.Pane {
 	buttonPane := createButtonDemo()
 
 	// Add all components to the layout with proper spacing
+	// Ensure fixed heights have adequate space for content including borders
 	contentLayout.AddChild(titleText, 2, 0)
 	contentLayout.AddChild(gridPane, 10, 0)
-	contentLayout.AddChild(textPane, 0, 1)
-	contentLayout.AddChild(buttonPane, 8, 0) // Increased height for buttons
+
+	// Give text pane a reasonable fixed height instead of proportional sizing
+	// This prevents it from being squeezed too small
+	contentLayout.AddChild(textPane, 12, 0)
+
+	// Ensure button pane has enough height for its content
+	contentLayout.AddChild(buttonPane, 10, 0)
 
 	// Set the content layout as the child of the content pane
 	contentPane.SetChild(contentLayout)
@@ -228,7 +234,7 @@ func createTextDemo() *widgets.Pane {
 	title := widgets.NewText("Text Widget Examples")
 	title.SetStyle(tinytui.DefaultTextStyle().Bold(true))
 
-	// Create different text widgets
+	// Create different text widgets with reasonable, fixed heights
 	text1 := widgets.NewText("Regular text - The theme affects the default appearance.")
 
 	text2 := widgets.NewText("Long wrapped text example. This text should wrap to multiple lines depending on the container width. The theme's text style will be applied to this widget.")
@@ -237,7 +243,7 @@ func createTextDemo() *widgets.Pane {
 	text3 := widgets.NewText("Custom styled text - this has custom styling.")
 	text3.SetStyle(tinytui.DefaultTextStyle().Bold(true).Italic(true))
 
-	// Create a list
+	// Create a list with proper styling
 	list := widgets.NewList()
 	list.SetItems([]string{
 		"List Item 1",
@@ -260,12 +266,15 @@ func createTextDemo() *widgets.Pane {
 		text2.SetWrap(true)
 	})
 
-	// Add widgets to layout
-	layout.AddChild(title, 1, 0)
-	layout.AddChild(text1, 1, 0)
-	layout.AddChild(text2, 4, 0)
-	layout.AddChild(text3, 1, 0)
-	layout.AddChild(list, 0, 1)
+	// Add widgets to layout with fixed heights to ensure proper space allocation
+	layout.AddChild(title, 1, 0) // Fixed 1 line for title
+	layout.AddChild(text1, 1, 0) // Fixed 1 line for regular text
+	layout.AddChild(text2, 2, 0) // Fixed 2 lines for wrapped text
+	layout.AddChild(text3, 1, 0) // Fixed 1 line for custom text
+
+	// Give the list a fixed height of at least 4 rows to show all items
+	// This ensures the list is always visible
+	layout.AddChild(list, 5, 0) // Fixed 5 lines for list (including some margin)
 
 	// Set layout as pane's child
 	pane.SetChild(layout)
@@ -281,7 +290,8 @@ func createButtonDemo() *widgets.Pane {
 	// Create a vertical layout
 	layout := tinytui.NewFlexLayout(tinytui.Vertical)
 	layout.SetGap(1)
-	layout.SetMainAxisAlignment(tinytui.AlignCenter) // Center align content vertically
+	// Use AlignStart instead of AlignCenter to avoid pushing buttons to the border
+	layout.SetMainAxisAlignment(tinytui.AlignStart)
 
 	// Create a title
 	title := widgets.NewText("Button Examples")
@@ -289,7 +299,7 @@ func createButtonDemo() *widgets.Pane {
 
 	// Create a horizontal layout for buttons with proper alignment
 	buttonLayout := tinytui.NewFlexLayout(tinytui.Horizontal)
-	buttonLayout.SetGap(3)                                  // More space between buttons
+	buttonLayout.SetGap(3)                                  // Space between buttons
 	buttonLayout.SetMainAxisAlignment(tinytui.AlignCenter)  // Center buttons horizontally
 	buttonLayout.SetCrossAxisAlignment(tinytui.AlignCenter) // Center buttons vertically
 
@@ -300,7 +310,6 @@ func createButtonDemo() *widgets.Pane {
 
 	// Add actions to buttons as a demo
 	button1.SetOnClick(func() {
-		// Just for demonstration - we'll make it do something visible
 		button1.SetLabel("Clicked!")
 	})
 
@@ -312,25 +321,25 @@ func createButtonDemo() *widgets.Pane {
 		button3.SetLabel("Helping!")
 	})
 
-	// Add buttons to horizontal layout with proper sizing
-	// Using proportion instead of fixed size gives better flexibility
-	buttonLayout.AddChild(button1, 0, 1)
-	buttonLayout.AddChild(button2, 0, 1)
-	buttonLayout.AddChild(button3, 0, 1)
+	// Add buttons to horizontal layout with FIXED WIDTH to ensure visibility
+	buttonLayout.AddChild(button1, 8, 0)  // Fixed width 8
+	buttonLayout.AddChild(button2, 10, 0) // Fixed width 10
+	buttonLayout.AddChild(button3, 8, 0)  // Fixed width 8
 
-	// Add spacing before buttons (empty text as spacer)
-	spacer1 := widgets.NewText("")
-
-	// Add widgets to main layout with better spacing
+	// Add widgets to layout with proper spacing
 	layout.AddChild(title, 1, 0)
-	layout.AddChild(spacer1, 1, 0)      // Add space before buttons
-	layout.AddChild(buttonLayout, 0, 1) // Use proportion for button layout
 
-	// Add space after buttons
+	// Add a fixed height (1) empty text for spacing
+	spacer1 := widgets.NewText("")
+	layout.AddChild(spacer1, 1, 0)
+
+	// Use fixed height (1) for button row - IMPORTANT CHANGE!
+	layout.AddChild(buttonLayout, 1, 0)
+
+	// Add description text with proper spacing
 	spacer2 := widgets.NewText("")
 	layout.AddChild(spacer2, 1, 0)
 
-	// Add description text
 	descText := widgets.NewText("Tab between buttons to see focus styles change")
 	layout.AddChild(descText, 1, 0)
 

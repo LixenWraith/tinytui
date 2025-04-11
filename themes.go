@@ -191,24 +191,32 @@ func NewCatppuccinMochaTheme() Theme {
 
 // NewBorlandTheme creates a classic Borland blue theme
 func NewBorlandTheme() Theme {
-	// Borland-style colors
-	bgColor := ColorBlue
-	fgColor := ColorWhite
-	highlightBg := ColorCyan
-	highlightFg := ColorBlack
-	borderColor := ColorWhite
-	borderFocusColor := ColorYellow
+	// Updated Borland-style colors
+	bgColor := tcell.NewRGBColor(0, 0, 170) // Darker Blue #0000AA
+	fgColor := tcell.ColorWhite             // White text
+	highlightBg := tcell.ColorLightCyan     // Cyan for selection
+	highlightFg := tcell.ColorBlack         // Black text on selection
+	borderColor := tcell.ColorWhite         // White borders
+	borderFocusColor := tcell.ColorYellow   // Yellow for focused borders
+	// menuBgColor := tcell.NewRGBColor(0, 170, 170) // Turquoise for status bar #00AAAA
+
+	// Define shades of blue for different elements
+	darkBlue := tcell.NewRGBColor(0, 0, 128) // #000080
 
 	baseStyle := DefaultStyle.
 		Background(bgColor).
 		Foreground(fgColor)
 
+	// menuStyle := DefaultStyle.
+	// 	Background(menuBgColor).
+	// 	Foreground(tcell.ColorBlack)
+
 	return &BaseTheme{
 		name:                 ThemeBorland,
 		textStyle:            baseStyle,
 		textSelectedStyle:    DefaultStyle.Background(highlightBg).Foreground(highlightFg),
-		buttonStyle:          baseStyle,
-		buttonFocusedStyle:   DefaultStyle.Background(highlightBg).Foreground(highlightFg),
+		buttonStyle:          DefaultStyle.Background(darkBlue).Foreground(fgColor),
+		buttonFocusedStyle:   DefaultStyle.Background(highlightBg).Foreground(highlightFg).Bold(true),
 		listStyle:            baseStyle,
 		listSelectedStyle:    DefaultStyle.Background(highlightBg).Foreground(highlightFg),
 		gridStyle:            baseStyle,

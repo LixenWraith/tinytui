@@ -152,6 +152,16 @@ func (b *Button) Draw(screen tcell.Screen) {
 	}
 	b.mu.RUnlock() // Release lock
 
+	// IMPORTANT: Always fill the entire button background first
+	tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
+
+	// Calculate vertical center for text alignment
+	textY := y
+	if height > 1 {
+		// Center text vertically when button has height > 1
+		textY = y + (height / 2)
+	}
+
 	// --- Calculate Layout ---
 	indicatorWidth := 0
 	indicatorX := -1 // Screen X coordinate for indicator
@@ -183,8 +193,9 @@ func (b *Button) Draw(screen tcell.Screen) {
 	// Center the label text within the available space
 	labelWidth := runewidth.StringWidth(labelText)
 	if labelWidth > availableWidth {
-		// TODO: Truncate label if needed, maybe add "..."
-		labelWidth = availableWidth // Use the available width for centering calculation
+		// Truncate label if needed
+		labelText = runewidth.Truncate(labelText, availableWidth, "")
+		labelWidth = runewidth.StringWidth(labelText)
 	}
 
 	if availableWidth > 0 {
@@ -201,40 +212,34 @@ func (b *Button) Draw(screen tcell.Screen) {
 	}
 
 	// --- Drawing ---
+	// Draw the label (clipped) - always draw label even if very small
+	if labelWidth > 0 {
+		col := labelStartX
+		endCol := x + width // Default right boundary for text
 
-	// 1. Fill background
-	tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
+		// Adjust end column if right indicator is shown
+		if indicatorPos == IndicatorRight && showIndicator {
+			// Stop drawing before the space preceding the indicator
+			endCol = indicatorX - 1
+		}
 
-	// 2. Draw Indicator (if shown and space permits)
+		// Calculate available width for the label
+		availableDisplayWidth := endCol - col
+		if availableDisplayWidth <= 0 {
+			availableDisplayWidth = 1 // Ensure at least 1 character can be displayed
+		}
+
+		// Truncate text to available width
+		displayText := runewidth.Truncate(labelText, availableDisplayWidth, "")
+
+		// Draw the label at vertical center when height > 1
+		tinytui.DrawText(screen, col, textY, currentStyle, displayText)
+	}
+
+	// Draw Indicator (if shown and space permits)
 	if showIndicator && indicatorX >= x && indicatorX+indicatorWidth <= x+width {
 		// Use the exported ToTcell() method here
 		screen.SetContent(indicatorX, y, indicatorChar, nil, currentStyle.ToTcell())
-	}
-
-	// 3. Draw Label (clipped)
-	col := labelStartX
-	sw, _ := screen.Size() // Screen width for boundary check
-	endCol := x + width    // Default right boundary for text
-
-	// Adjust end column if right indicator is shown
-	if indicatorPos == IndicatorRight && showIndicator {
-		// Stop drawing before the space preceding the indicator
-		endCol = indicatorX - 1
-	}
-
-	// Draw the label character by character, respecting rune width and clipping
-	tcellStyle := currentStyle.ToTcell() // Convert style once for drawing loop
-	for _, r := range labelText {
-		rw := runewidth.RuneWidth(r)
-		// Check bounds: ensure rune fits before endCol and within screen width
-		if col+rw > endCol || col >= sw {
-			break
-		}
-		// Only draw if within button horizontal bounds (col >= x)
-		if col >= x {
-			screen.SetContent(col, y, r, nil, tcellStyle)
-		}
-		col += rw
 	}
 }
 

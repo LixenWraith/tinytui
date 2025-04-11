@@ -150,8 +150,53 @@ func (p *Pane) Draw(screen tcell.Screen) {
 	}
 	p.mu.RUnlock() // Unlock after reading state
 
-	// Calculate content area first
+	// Calculate content area with proper border handling
 	contentX, contentY, contentWidth, contentHeight := x, y, width, height
+
+	// Special handling for single-line height panes
+	if borderEnabled && height <= 2 {
+		// For extremely small heights, prioritize content over borders
+		// Just draw content without borders for height == 1
+		if height == 1 {
+			// Fill single line with content bg
+			tinytui.Fill(screen, x, y, width, height, ' ', contentStyle)
+
+			// Draw child without borders
+			if childWidget != nil {
+				childWidget.SetRect(x, y, width, height)
+				childWidget.Draw(screen)
+			}
+			return
+		}
+
+		// For height == 2, show content in the single available line (no top/bottom borders)
+		// Draw left/right borders only if width permits
+		tinytui.Fill(screen, x, y, width, height, ' ', contentStyle)
+
+		// Draw side borders if there's enough width
+		if width > 2 && bType != tinytui.BorderNone {
+			// Left border
+			screen.SetContent(x, y, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
+			screen.SetContent(x, y+1, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
+
+			// Right border
+			screen.SetContent(x+width-1, y, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
+			screen.SetContent(x+width-1, y+1, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
+
+			// Adjust content area
+			contentX = x + 1
+			contentWidth = width - 2
+		}
+
+		// Draw child in remaining space
+		if childWidget != nil && contentWidth > 0 {
+			childWidget.SetRect(contentX, y, contentWidth, height)
+			childWidget.Draw(screen)
+		}
+		return
+	}
+
+	// Normal case - adequate height for full borders
 	if borderEnabled && bType != tinytui.BorderNone && width > 1 && height > 1 {
 		contentX++
 		contentY++
@@ -159,8 +204,16 @@ func (p *Pane) Draw(screen tcell.Screen) {
 		contentHeight -= 2
 	}
 
-	// Draw border if enabled (uses original dimensions)
-	if borderEnabled && bType != tinytui.BorderNone && width > 0 && height > 0 {
+	// Ensure content dimensions are valid
+	if contentWidth < 0 {
+		contentWidth = 0
+	}
+	if contentHeight < 0 {
+		contentHeight = 0
+	}
+
+	// Draw border if enabled and there's enough space
+	if borderEnabled && bType != tinytui.BorderNone && width > 1 && height > 1 {
 		switch bType {
 		case tinytui.BorderSingle:
 			tinytui.DrawBox(screen, x, y, width, height, currentBorderStyle)
@@ -168,7 +221,6 @@ func (p *Pane) Draw(screen tcell.Screen) {
 			tinytui.DrawDoubleBox(screen, x, y, width, height, currentBorderStyle)
 		case tinytui.BorderSolid:
 			tinytui.DrawSolidBox(screen, x, y, width, height, currentBorderStyle)
-			// Add other cases if more border types are defined
 		}
 	}
 
@@ -177,10 +229,9 @@ func (p *Pane) Draw(screen tcell.Screen) {
 		tinytui.Fill(screen, contentX, contentY, contentWidth, contentHeight, ' ', contentStyle)
 	}
 
-	// Draw Child (within content area)
-	if childWidget != nil {
-		// Child's SetRect was called in Pane.SetRect
-		childWidget.Draw(screen) // Draw the child read under lock
+	// Draw Child within content area if there's space
+	if childWidget != nil && contentWidth > 0 && contentHeight > 0 {
+		childWidget.Draw(screen)
 	}
 }
 
@@ -283,7 +334,10 @@ func (p *Pane) SetRect(x, y, width, height int) {
 	childWidget := p.child
 	p.mu.RUnlock() // Unlock after reading
 
+	// Calculate content area
 	contentX, contentY, contentWidth, contentHeight := x, y, width, height
+
+	// If border is enabled, reserve space for it
 	if borderEnabled && bType != tinytui.BorderNone && width > 1 && height > 1 {
 		contentX++
 		contentY++
@@ -291,7 +345,7 @@ func (p *Pane) SetRect(x, y, width, height int) {
 		contentHeight -= 2
 	}
 
-	// Ensure dimensions are non-negative
+	// Ensure dimensions are non-negative and enforce minimum size
 	if contentWidth < 0 {
 		contentWidth = 0
 	}
@@ -299,6 +353,7 @@ func (p *Pane) SetRect(x, y, width, height int) {
 		contentHeight = 0
 	}
 
+	// Set child widget dimensions, strictly enforcing the content area bounds
 	if childWidget != nil {
 		childWidget.SetRect(contentX, contentY, contentWidth, contentHeight)
 	}
