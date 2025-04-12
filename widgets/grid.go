@@ -12,35 +12,43 @@ import (
 // Grid displays a 2D grid of text items, allowing navigation and selection.
 type Grid struct {
 	tinytui.BaseWidget
-	mu            sync.RWMutex
-	cells         [][]string // The string content for each cell [row][col]
-	numRows       int
-	numCols       int
-	selectedRow   int // Index of the currently selected row
-	selectedCol   int // Index of the currently selected column
-	topRow        int // Index of the row displayed at the top
-	leftCol       int // Index of the column displayed at the left
-	cellWidth     int // Fixed width for each cell (0 for auto - not implemented yet)
-	cellHeight    int // Fixed height for each cell (usually 1)
-	style         tinytui.Style
-	selectedStyle tinytui.Style
-	onChange      func(row, col int, item string) // Callback when selection changes
-	onSelect      func(row, col int, item string) // Callback when item is selected (Space)
+	mu                     sync.RWMutex
+	cells                  [][]string // The string content for each cell [row][col]
+	numRows                int
+	numCols                int
+	selectedRow            int                             // Index of the currently selected row
+	selectedCol            int                             // Index of the currently selected column
+	topRow                 int                             // Index of the row displayed at the top
+	leftCol                int                             // Index of the column displayed at the left
+	cellWidth              int                             // Fixed width for each cell (0 for auto - not implemented yet)
+	cellHeight             int                             // Fixed height for each cell (usually 1)
+	style                  tinytui.Style                   // Normal style
+	selectedStyle          tinytui.Style                   // Selected, not focused
+	interactedStyle        tinytui.Style                   // Interacted, not focused
+	focusedStyle           tinytui.Style                   // Focused normal style
+	focusedSelectedStyle   tinytui.Style                   // Focused and selected
+	focusedInteractedStyle tinytui.Style                   // Focused and interacted
+	onChange               func(row, col int, item string) // Callback when selection changes
+	onSelect               func(row, col int, item string) // Callback when item is selected (Space)
 }
 
 // NewGrid creates a new, empty Grid widget.
 // Default cell height is 1. Cell width needs to be set.
 func NewGrid() *Grid {
 	g := &Grid{
-		cells:         [][]string{},
-		selectedRow:   -1, // No selection initially
-		selectedCol:   -1,
-		topRow:        0,
-		leftCol:       0,
-		cellHeight:    tinytui.DefaultCellHeight(),
-		cellWidth:     tinytui.DefaultCellWidth(),
-		style:         tinytui.DefaultGridStyle(),
-		selectedStyle: tinytui.DefaultGridSelectedStyle(),
+		cells:                  [][]string{},
+		selectedRow:            -1, // No selection initially
+		selectedCol:            -1,
+		topRow:                 0,
+		leftCol:                0,
+		cellHeight:             tinytui.DefaultCellHeight(),
+		cellWidth:              tinytui.DefaultCellWidth(),
+		style:                  tinytui.DefaultGridStyle(),
+		selectedStyle:          tinytui.DefaultGridStyle().Dim(true).Underline(true),
+		interactedStyle:        tinytui.DefaultGridStyle().Bold(true),
+		focusedStyle:           tinytui.DefaultGridStyle().Underline(true),
+		focusedSelectedStyle:   tinytui.DefaultGridSelectedStyle(),
+		focusedInteractedStyle: tinytui.DefaultGridSelectedStyle().Bold(true),
 	}
 	g.SetVisible(true) // Explicitly set visibility
 	return g
@@ -106,15 +114,6 @@ func (g *Grid) SetStyle(style tinytui.Style) *Grid {
 	return g
 }
 
-// ApplyTheme applies the provided theme to the Grid widget
-func (g *Grid) ApplyTheme(theme tinytui.Theme) {
-	g.SetStyle(theme.GridStyle())
-	g.SetSelectedStyle(theme.GridSelectedStyle())
-	// Optional: Update cell size to theme defaults
-	// g.SetCellSize(theme.DefaultCellWidth(), theme.DefaultCellHeight())
-}
-
-// SetSelectedStyle sets the style for the selected cell.
 func (g *Grid) SetSelectedStyle(style tinytui.Style) *Grid {
 	g.mu.Lock()
 	g.selectedStyle = style
@@ -123,6 +122,56 @@ func (g *Grid) SetSelectedStyle(style tinytui.Style) *Grid {
 		app.QueueRedraw()
 	}
 	return g
+}
+
+func (g *Grid) SetInteractedStyle(style tinytui.Style) *Grid {
+	g.mu.Lock()
+	g.interactedStyle = style
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+func (g *Grid) SetFocusedStyle(style tinytui.Style) *Grid {
+	g.mu.Lock()
+	g.focusedStyle = style
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+func (g *Grid) SetFocusedSelectedStyle(style tinytui.Style) *Grid {
+	g.mu.Lock()
+	g.focusedSelectedStyle = style
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+func (g *Grid) SetFocusedInteractedStyle(style tinytui.Style) *Grid {
+	g.mu.Lock()
+	g.focusedInteractedStyle = style
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+// ApplyTheme applies the provided theme to the Grid widget
+func (g *Grid) ApplyTheme(theme tinytui.Theme) {
+	g.SetStyle(theme.GridStyle())
+	g.SetSelectedStyle(theme.GridSelectedStyle())
+	g.SetInteractedStyle(theme.GridInteractedStyle())
+	g.SetFocusedStyle(theme.GridFocusedStyle())
+	g.SetFocusedSelectedStyle(theme.GridFocusedSelectedStyle())
+	g.SetFocusedInteractedStyle(theme.GridFocusedInteractedStyle())
 }
 
 // SetOnChange sets the callback for when the selection changes via navigation.
@@ -279,16 +328,22 @@ func (g *Grid) Draw(screen tcell.Screen) {
 		return // Cannot draw
 	}
 
-	g.mu.RLock()
+	g.mu.RLock() // Use RLock for reading content/lines
 	// Read all necessary state under lock
 	selRow, selCol := g.selectedRow, g.selectedCol
 	topRow, leftCol := g.topRow, g.leftCol
 	cWidth, cHeight := g.cellWidth, g.cellHeight
+	state := g.GetState()
+	isFocused := g.IsFocused() // Check focus state for drawing
+
+	// Base style
 	baseStyle := g.style
-	selectedStyle := g.selectedStyle
+	if isFocused {
+		baseStyle = g.focusedStyle
+	}
+
 	cells := g.cells
 	rows, cols := g.numRows, g.numCols
-	isFocused := g.IsFocused() // Check focus state for drawing
 	g.mu.RUnlock()
 
 	visibleRows := height / cHeight
@@ -322,14 +377,32 @@ func (g *Grid) Draw(screen tcell.Screen) {
 				continue // Skip cells completely outside drawable bounds
 			}
 
-			// Determine style: Use selectedStyle only if the grid widget itself is focused
-			style := baseStyle
-			if isFocused && gridRow == selRow && gridCol == selCol {
-				style = selectedStyle
+			// Determine cell style based on focus, selection state
+			cellStyle := baseStyle
+
+			// Check if this is the currently selected cell
+			isCurrentCell := (gridRow == selRow && gridCol == selCol)
+
+			if isCurrentCell {
+				if isFocused {
+					// Focused and selected cell
+					if state == tinytui.StateInteracted {
+						cellStyle = g.focusedInteractedStyle
+					} else {
+						cellStyle = g.focusedSelectedStyle
+					}
+				} else {
+					// Not focused but selected cell
+					if state == tinytui.StateInteracted {
+						cellStyle = g.interactedStyle
+					} else {
+						cellStyle = g.selectedStyle
+					}
+				}
 			}
 
 			// Clear cell background
-			tinytui.Fill(screen, cellX, cellY, drawWidth, drawHeight, ' ', style)
+			tinytui.Fill(screen, cellX, cellY, drawWidth, drawHeight, ' ', cellStyle)
 
 			// Draw content
 			item := cells[gridRow][gridCol]
@@ -338,7 +411,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 
 			// Draw only on the first line of the cell area for now
 			if cellY >= y && cellY < y+height { // Ensure Y is within bounds
-				tinytui.DrawText(screen, cellX, cellY, style, displayText)
+				tinytui.DrawText(screen, cellX, cellY, cellStyle, displayText)
 			}
 		}
 	}
@@ -410,11 +483,13 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 
 	// Enter for Selection
 	case tcell.KeyEnter:
+		// Set state to interacted
+		g.SetState(tinytui.StateInteracted)
 		g.mu.Unlock()       // Unlock before calling callback
 		g.triggerOnSelect() // Trigger the selection callback
 		return true         // Enter consumed
 
-	// Vim Keys (h,j,k,l) + Space
+	// Vim Keys (h,j,k,l)
 	case tcell.KeyRune:
 		switch keyEvent.Rune() {
 		case 'k': // Up
@@ -429,16 +504,22 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		case 'l': // Right
 			newCol++
 			needsRedraw = true
-		case ' ': // Select
-			g.mu.Unlock()       // Unlock before calling callback
-			g.triggerOnSelect() // Trigger the selection callback
-			return true         // Space consumed
+		case ' ': // Space
+			currentState := g.GetState()
+			if currentState != tinytui.StateSelected {
+				g.SetState(tinytui.StateSelected)
+			} else {
+				g.SetState(tinytui.StateNormal)
+			}
+			g.mu.Unlock()
+			if app := g.App(); app != nil {
+				app.QueueRedraw()
+			}
+			return true // Space consumed
 		default:
 			g.mu.Unlock()
 			return false // Rune not handled
 		}
-
-	// TODO: Add Home, End, PgUp, PgDn?
 
 	default:
 		g.mu.Unlock()
@@ -461,6 +542,8 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 
 		// Trigger callbacks and redraw outside the lock
 		if indexChanged {
+			// When the selection changes, set state to selected
+			g.SetState(tinytui.StateSelected)
 			g.triggerOnChange() // Selection moved
 		}
 		if app := g.App(); app != nil {

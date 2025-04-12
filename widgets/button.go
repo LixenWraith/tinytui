@@ -24,24 +24,32 @@ const (
 // Button is a focusable widget that displays a label and triggers an action.
 type Button struct {
 	tinytui.BaseWidget
-	mu           sync.RWMutex
-	label        string
-	style        tinytui.Style
-	focusedStyle tinytui.Style
-	indicator    rune // Character used as the indicator (e.g., '>', 0 for none).
-	indicatorPos IndicatorPosition
-	onClick      func() // Action to perform when activated
+	mu                     sync.RWMutex
+	label                  string
+	style                  tinytui.Style // Normal style
+	selectedStyle          tinytui.Style // Selected, not focused
+	interactedStyle        tinytui.Style // Interacted, not focused
+	focusedStyle           tinytui.Style // Focused, normal state
+	focusedSelectedStyle   tinytui.Style // Focused and selected
+	focusedInteractedStyle tinytui.Style // Focused and interacted
+	indicator              rune          // Character used as the indicator (e.g., '>', 0 for none)
+	indicatorPos           IndicatorPosition
+	onClick                func() // Action to perform when activated
 }
 
 // NewButton creates a new Button widget.
 func NewButton(label string) *Button {
 	b := &Button{
-		label:        label,
-		style:        tinytui.DefaultButtonStyle(),
-		focusedStyle: tinytui.DefaultButtonFocusedStyle(),
-		indicator:    '>',           // Default indicator
-		indicatorPos: IndicatorLeft, // Default position
-		onClick:      nil,
+		label:                  label,
+		style:                  tinytui.DefaultButtonStyle(),
+		selectedStyle:          tinytui.DefaultButtonStyle().Dim(true).Underline(true),
+		interactedStyle:        tinytui.DefaultButtonStyle().Bold(true),
+		focusedStyle:           tinytui.DefaultButtonFocusedStyle(),
+		focusedSelectedStyle:   tinytui.DefaultButtonFocusedStyle().Dim(true),
+		focusedInteractedStyle: tinytui.DefaultButtonFocusedStyle().Bold(true),
+		indicator:              '>',           // Default indicator
+		indicatorPos:           IndicatorLeft, // Default position
+		onClick:                nil,
 	}
 	b.SetVisible(true) // Explicitly set visibility
 	return b
@@ -63,8 +71,58 @@ func (b *Button) SetStyle(style tinytui.Style) *Button {
 	b.mu.Lock()
 	b.style = style
 	b.mu.Unlock()
-	if !b.IsFocused() && b.App() != nil {
-		b.App().QueueRedraw()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return b
+}
+
+func (b *Button) SetSelectedStyle(style tinytui.Style) *Button {
+	b.mu.Lock()
+	b.selectedStyle = style
+	b.mu.Unlock()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return b
+}
+
+func (b *Button) SetInteractedStyle(style tinytui.Style) *Button {
+	b.mu.Lock()
+	b.interactedStyle = style
+	b.mu.Unlock()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return b
+}
+
+func (b *Button) SetFocusedStyle(style tinytui.Style) *Button {
+	b.mu.Lock()
+	b.focusedStyle = style
+	b.mu.Unlock()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return b
+}
+
+func (b *Button) SetFocusedSelectedStyle(style tinytui.Style) *Button {
+	b.mu.Lock()
+	b.focusedSelectedStyle = style
+	b.mu.Unlock()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return b
+}
+
+func (b *Button) SetFocusedInteractedStyle(style tinytui.Style) *Button {
+	b.mu.Lock()
+	b.focusedInteractedStyle = style
+	b.mu.Unlock()
+	if app := b.App(); app != nil {
+		app.QueueRedraw()
 	}
 	return b
 }
@@ -72,18 +130,11 @@ func (b *Button) SetStyle(style tinytui.Style) *Button {
 // ApplyTheme applies the provided theme to the Button widget
 func (b *Button) ApplyTheme(theme tinytui.Theme) {
 	b.SetStyle(theme.ButtonStyle())
+	b.SetSelectedStyle(theme.ButtonSelectedStyle())
+	b.SetInteractedStyle(theme.ButtonInteractedStyle())
 	b.SetFocusedStyle(theme.ButtonFocusedStyle())
-}
-
-// SetFocusedStyle sets the style used when the button has focus.
-func (b *Button) SetFocusedStyle(style tinytui.Style) *Button {
-	b.mu.Lock()
-	b.focusedStyle = style
-	b.mu.Unlock()
-	if b.IsFocused() && b.App() != nil {
-		b.App().QueueRedraw()
-	}
-	return b
+	b.SetFocusedSelectedStyle(theme.ButtonFocusedSelectedStyle())
+	b.SetFocusedInteractedStyle(theme.ButtonFocusedInteractedStyle())
 }
 
 // SetIndicator configures the focus/action indicator character and its position.
@@ -141,17 +192,39 @@ func (b *Button) Draw(screen tcell.Screen) {
 	}
 
 	b.mu.RLock() // Read lock for accessing properties
+
+	// Determine appropriate style based on focus and state
 	currentStyle := b.style
-	// Show indicator only when focused and configured
-	showIndicator := b.indicator != 0 && b.indicatorPos != IndicatorNone && b.IsFocused()
+	state := b.GetState()
+	isFocused := b.IsFocused()
+
+	if isFocused {
+		switch state {
+		case tinytui.StateInteracted:
+			currentStyle = b.focusedInteractedStyle
+		case tinytui.StateSelected:
+			currentStyle = b.focusedSelectedStyle
+		default:
+			currentStyle = b.focusedStyle
+		}
+	} else {
+		switch state {
+		case tinytui.StateInteracted:
+			currentStyle = b.interactedStyle
+		case tinytui.StateSelected:
+			currentStyle = b.selectedStyle
+		}
+	}
+
+	// Remaining properties
+	showIndicator := b.indicator != 0 && b.indicatorPos != IndicatorNone && isFocused
 	indicatorChar := b.indicator
 	indicatorPos := b.indicatorPos
 	labelText := b.label
-	if b.IsFocused() {
-		currentStyle = b.focusedStyle
-	}
+
 	b.mu.RUnlock() // Release lock
 
+	// Rest of the Draw method remains largely unchanged
 	// IMPORTANT: Always fill the entire button background first
 	tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
 
@@ -211,7 +284,6 @@ func (b *Button) Draw(screen tcell.Screen) {
 		labelStartX = x + indicatorWidth + 1
 	}
 
-	// --- Drawing ---
 	// Draw the label (clipped) - always draw label even if very small
 	if labelWidth > 0 {
 		col := labelStartX
@@ -282,10 +354,31 @@ func (b *Button) HandleEvent(event tcell.Event) bool {
 	// Handle activation keys (Enter)
 	if keyEvent, ok := event.(*tcell.EventKey); ok {
 		if keyEvent.Key() == tcell.KeyEnter {
+			// Set state to interacted
+			b.SetState(tinytui.StateInteracted)
+
+			// Trigger callback if set
 			if clickHandler != nil {
 				clickHandler()
 			}
+
+			// Note: We keep the interacted state after clicking
+			// Optionally, we could reset it after a delay or leave it to the app logic
+
 			return true // Enter key consumed
+
+		} else if keyEvent.Key() == tcell.KeyRune {
+			if keyEvent.Rune() == ' ' {
+				// Space selects but doesn't activate
+				currentState := b.GetState()
+				if currentState != tinytui.StateSelected {
+					b.SetState(tinytui.StateSelected)
+				} else {
+					// Toggle selection off if already selected
+					b.SetState(tinytui.StateNormal)
+				}
+				return true // Space key consumed
+			}
 		}
 	}
 

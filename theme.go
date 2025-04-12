@@ -24,39 +24,44 @@ type Theme interface {
 	// Name returns the unique name of the theme
 	Name() ThemeName
 
-	// TextStyle returns the default style for text widgets
+	// TextStyles
 	TextStyle() Style
-	// TextSelectedStyle returns the style for selected text
 	TextSelectedStyle() Style
 
-	// ButtonStyle returns the style for buttons
-	ButtonStyle() Style
-	// ButtonFocusedStyle returns the style for focused buttons
-	ButtonFocusedStyle() Style
+	// Button styles based on state
+	ButtonStyle() Style                  // Base style (equivalent to ButtonNormalStyle)
+	ButtonFocusedStyle() Style           // Base focused style
+	ButtonSelectedStyle() Style          // Selected, not focused
+	ButtonInteractedStyle() Style        // Interacted, not focused
+	ButtonFocusedSelectedStyle() Style   // Selected and focused
+	ButtonFocusedInteractedStyle() Style // Interacted and focused
 
-	// ListStyle returns the style for list items
-	ListStyle() Style
-	// ListSelectedStyle returns the style for selected list items
-	ListSelectedStyle() Style
+	// List styles based on state
+	ListStyle() Style                  // Base style (equivalent to ListNormalStyle)
+	ListFocusedStyle() Style           // Base focused style
+	ListSelectedStyle() Style          // Selected, not focused
+	ListInteractedStyle() Style        // Interacted, not focused
+	ListFocusedSelectedStyle() Style   // Selected and focused
+	ListFocusedInteractedStyle() Style // Interacted and focused
 
-	// GridStyle returns the style for grid cells
-	GridStyle() Style
-	// GridSelectedStyle returns the style for selected grid cells
-	GridSelectedStyle() Style
+	// Grid styles based on state
+	GridStyle() Style                  // Base style (equivalent to GridNormalStyle)
+	GridFocusedStyle() Style           // Base focused style
+	GridSelectedStyle() Style          // Selected, not focused
+	GridInteractedStyle() Style        // Interacted, not focused
+	GridFocusedSelectedStyle() Style   // Selected and focused
+	GridFocusedInteractedStyle() Style // Interacted and focused
 
-	// PaneStyle returns the style for pane content areas
+	// Pane styles
 	PaneStyle() Style
-	// PaneBorderStyle returns the style for pane borders
 	PaneBorderStyle() Style
-	// PaneFocusBorderStyle returns the style for focused pane borders
 	PaneFocusBorderStyle() Style
 
-	// DefaultBorderType returns the default border type for panes
+	// Default border type for panes
 	DefaultBorderType() BorderType
 
-	// DefaultCellWidth returns the default width for grid cells
+	// Default cell dimensions for grid
 	DefaultCellWidth() int
-	// DefaultCellHeight returns the default height for grid cells
 	DefaultCellHeight() int
 }
 
@@ -143,8 +148,6 @@ func SubscribeThemeChange(callback func(Theme)) {
 func init() {
 	// Register all predefined themes
 	RegisterTheme(NewDefaultTheme())
-	RegisterTheme(NewTokyoNightTheme())
-	RegisterTheme(NewCatppuccinMochaTheme())
 	RegisterTheme(NewBorlandTheme())
 
 	// Set default theme
@@ -275,4 +278,56 @@ func DefaultCellHeight() int {
 		return theme.DefaultCellHeight()
 	}
 	return 1 // Default value
+}
+
+// Convenience methods to get the appropriate style for a widget based on its type, state, and focus
+func GetButtonStyle(theme Theme, state WidgetState, focused bool) Style {
+	switch {
+	case focused && state == StateInteracted:
+		return theme.ButtonFocusedInteractedStyle()
+	case focused && state == StateSelected:
+		return theme.ButtonFocusedSelectedStyle()
+	case focused:
+		return theme.ButtonFocusedStyle()
+	case state == StateInteracted:
+		return theme.ButtonInteractedStyle()
+	case state == StateSelected:
+		return theme.ButtonSelectedStyle()
+	default:
+		return theme.ButtonStyle()
+	}
+}
+
+func GetListStyle(theme Theme, state WidgetState, focused bool) Style {
+	switch {
+	case focused && state == StateInteracted:
+		return theme.ListFocusedInteractedStyle()
+	case focused && state == StateSelected:
+		return theme.ListFocusedSelectedStyle()
+	case focused:
+		return theme.ListFocusedStyle()
+	case state == StateInteracted:
+		return theme.ListInteractedStyle()
+	case state == StateSelected:
+		return theme.ListSelectedStyle()
+	default:
+		return theme.ListStyle()
+	}
+}
+
+func GetGridStyle(theme Theme, state WidgetState, focused bool) Style {
+	switch {
+	case focused && state == StateInteracted:
+		return theme.GridFocusedInteractedStyle()
+	case focused && state == StateSelected:
+		return theme.GridFocusedSelectedStyle()
+	case focused:
+		return theme.GridFocusedStyle()
+	case state == StateInteracted:
+		return theme.GridInteractedStyle()
+	case state == StateSelected:
+		return theme.GridSelectedStyle()
+	default:
+		return theme.GridStyle()
+	}
 }

@@ -12,24 +12,32 @@ import (
 // List displays a scrollable list of text items.
 type List struct {
 	tinytui.BaseWidget
-	mu            sync.RWMutex
-	items         []string          // The items to display in the list
-	selectedIndex int               // Index of the currently selected item (-1 if empty or no selection)
-	topIndex      int               // Index of the item displayed at the top row
-	style         tinytui.Style     // Style for non-selected items
-	selectedStyle tinytui.Style     // Style for the selected item
-	onChange      func(int, string) // Callback when the selected index changes
-	onSelect      func(int, string) // Callback when an item is selected (e.g., Enter pressed)
+	mu                     sync.RWMutex
+	items                  []string          // The items to display in the list
+	selectedIndex          int               // Index of the currently selected item (-1 if empty or no selection)
+	topIndex               int               // Index of the item displayed at the top row
+	style                  tinytui.Style     // Normal style
+	selectedStyle          tinytui.Style     // Selected, not focused
+	interactedStyle        tinytui.Style     // Interacted, not focused
+	focusedStyle           tinytui.Style     // Focused normal style
+	focusedSelectedStyle   tinytui.Style     // Focused and selected
+	focusedInteractedStyle tinytui.Style     // Focused and interacted
+	onChange               func(int, string) // Callback when the selected index changes
+	onSelect               func(int, string) // Callback when an item is selected (e.g., Enter pressed)
 }
 
 // NewList creates a new List widget.
 func NewList() *List {
 	l := &List{
-		items:         []string{},
-		selectedIndex: -1,
-		topIndex:      0,
-		style:         tinytui.DefaultListStyle(),
-		selectedStyle: tinytui.DefaultListSelectedStyle(),
+		items:                  []string{},
+		selectedIndex:          -1,
+		topIndex:               0,
+		style:                  tinytui.DefaultListStyle(),
+		selectedStyle:          tinytui.DefaultListStyle().Dim(true).Underline(true),
+		interactedStyle:        tinytui.DefaultListStyle().Bold(true),
+		focusedStyle:           tinytui.DefaultListStyle().Underline(true),
+		focusedSelectedStyle:   tinytui.DefaultListSelectedStyle(),
+		focusedInteractedStyle: tinytui.DefaultListSelectedStyle().Bold(true),
 	}
 	l.SetVisible(true) // Explicitly set visibility
 	return l
@@ -69,13 +77,6 @@ func (l *List) SetStyle(style tinytui.Style) *List {
 	return l
 }
 
-// ApplyTheme applies the provided theme to the List widget
-func (l *List) ApplyTheme(theme tinytui.Theme) {
-	l.SetStyle(theme.ListStyle())
-	l.SetSelectedStyle(theme.ListSelectedStyle())
-}
-
-// SetSelectedStyle sets the style for the selected list item.
 func (l *List) SetSelectedStyle(style tinytui.Style) *List {
 	l.mu.Lock()
 	l.selectedStyle = style
@@ -84,6 +85,56 @@ func (l *List) SetSelectedStyle(style tinytui.Style) *List {
 		app.QueueRedraw()
 	}
 	return l
+}
+
+func (l *List) SetInteractedStyle(style tinytui.Style) *List {
+	l.mu.Lock()
+	l.interactedStyle = style
+	l.mu.Unlock()
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+func (l *List) SetFocusedStyle(style tinytui.Style) *List {
+	l.mu.Lock()
+	l.focusedStyle = style
+	l.mu.Unlock()
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+func (l *List) SetFocusedSelectedStyle(style tinytui.Style) *List {
+	l.mu.Lock()
+	l.focusedSelectedStyle = style
+	l.mu.Unlock()
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+func (l *List) SetFocusedInteractedStyle(style tinytui.Style) *List {
+	l.mu.Lock()
+	l.focusedInteractedStyle = style
+	l.mu.Unlock()
+	if app := l.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return l
+}
+
+// ApplyTheme applies the provided theme to the List widget
+func (l *List) ApplyTheme(theme tinytui.Theme) {
+	l.SetStyle(theme.ListStyle())
+	l.SetSelectedStyle(theme.ListSelectedStyle())
+	l.SetInteractedStyle(theme.ListInteractedStyle())
+	l.SetFocusedStyle(theme.ListFocusedStyle())
+	l.SetFocusedSelectedStyle(theme.ListFocusedSelectedStyle())
+	l.SetFocusedInteractedStyle(theme.ListFocusedInteractedStyle())
 }
 
 // SetOnChange sets a callback function that is triggered whenever the
@@ -235,8 +286,15 @@ func (l *List) Draw(screen tcell.Screen) {
 	itemsToDraw := l.items
 	selIdx := l.selectedIndex
 	topIdx := l.topIndex
+	isFocused := l.IsFocused()
+	state := l.GetState()
+
+	// Base style
 	baseStyle := l.style
-	selectedStyle := l.selectedStyle
+	if isFocused {
+		baseStyle = l.focusedStyle
+	}
+
 	l.mu.RUnlock() // Release lock after getting needed data
 
 	// Fill the entire background with the base style
@@ -257,18 +315,36 @@ func (l *List) Draw(screen tcell.Screen) {
 
 		if itemIndex >= 0 && itemIndex < len(itemsToDraw) {
 			item := itemsToDraw[itemIndex]
-			style := baseStyle
+
+			// Determine item style based on state and focus
+			itemStyle := baseStyle
+
+			// Special handling for the item at the cursor position
 			if itemIndex == selIdx {
-				style = selectedStyle
+				if isFocused {
+					// This is the selected item and we have focus
+					if state == tinytui.StateInteracted {
+						itemStyle = l.focusedInteractedStyle
+					} else {
+						itemStyle = l.focusedSelectedStyle
+					}
+				} else {
+					// This is the selected item but we don't have focus
+					if state == tinytui.StateInteracted {
+						itemStyle = l.interactedStyle
+					} else {
+						itemStyle = l.selectedStyle
+					}
+				}
 			}
 
 			// Clear the line with the style's background
-			tinytui.Fill(screen, x, drawY, width, 1, ' ', style)
+			tinytui.Fill(screen, x, drawY, width, 1, ' ', itemStyle)
 
 			// Item indicator for selected items (shows focus clearly)
 			if itemIndex == selIdx {
 				// Draw a focus indicator
-				screen.SetContent(x, drawY, '>', nil, style.ToTcell())
+				screen.SetContent(x, drawY, '>', nil, itemStyle.ToTcell())
 				padding = 2 // More padding when showing indicator
 			}
 
@@ -279,7 +355,7 @@ func (l *List) Draw(screen tcell.Screen) {
 			}
 
 			// Draw the item text with padding
-			tinytui.DrawText(screen, x+padding, drawY, style, displayText)
+			tinytui.DrawText(screen, x+padding, drawY, itemStyle, displayText)
 		}
 	}
 }
@@ -360,10 +436,26 @@ func (l *List) HandleEvent(event tcell.Event) bool {
 		}
 		needsRedraw = true
 	case tcell.KeyEnter:
+		// Set state to interacted and call callback
+		l.SetState(tinytui.StateInteracted)
 		l.mu.Unlock()       // Unlock before calling callback
 		l.triggerOnSelect() // Trigger select action
 		return true         // Event handled
-
+	case tcell.KeyRune:
+		if keyEvent.Rune() == ' ' {
+			// Toggle selection state
+			currentState := l.GetState()
+			if currentState != tinytui.StateSelected {
+				l.SetState(tinytui.StateSelected)
+			} else {
+				l.SetState(tinytui.StateNormal)
+			}
+			l.mu.Unlock()
+			if app := l.App(); app != nil {
+				app.QueueRedraw()
+			}
+			return true // Event handled
+		}
 	default:
 		l.mu.Unlock()
 		return false // Key not handled by list navigation
@@ -379,6 +471,8 @@ func (l *List) HandleEvent(event tcell.Event) bool {
 		l.mu.Unlock() // Unlock before potentially calling callbacks or queuing redraw
 
 		if indexChanged {
+			// When the index changes, set the state to selected
+			l.SetState(tinytui.StateSelected)
 			l.triggerOnChange() // Trigger change callback
 		}
 		if app := l.App(); app != nil {

@@ -143,6 +143,56 @@ func (s Style) Deconstruct() (fg Color, bg Color, attrs AttrMask, bgSet bool) {
 	return fg, bg, attrs, bgSet
 }
 
+// GetStateStyle returns the appropriate style for a given widget state
+func (s Style) GetStateStyle(state WidgetState, focused bool) Style {
+	switch {
+	case focused && state == StateInteracted:
+		// Return focused+interacted style - using reverse and bold attributes by default
+		return s.Reverse(true).Bold(true)
+	case focused && state == StateSelected:
+		// Return focused+selected style - using reverse attribute by default
+		return s.Reverse(true)
+	case focused:
+		// Return focused style - using dim and underline attributes by default
+		return s.Dim(false).Underline(true)
+	case state == StateInteracted:
+		// Return interacted style - using bold attribute by default
+		return s.Bold(true)
+	case state == StateSelected:
+		// Return selected style - using dim and underline attributes by default
+		return s.Dim(true).Underline(true)
+	default:
+		// Return normal style
+		return s
+	}
+}
+
+// MergeWith creates a new style by merging attributes from another style
+// The other style's attributes will override this style's attributes if set
+func (s Style) MergeWith(other Style) Style {
+	_, _, attrs1, _ := s.Deconstruct()
+	fg2, bg2, attrs2, bgSet2 := other.Deconstruct()
+
+	result := s
+
+	// Apply foreground if not default
+	if fg2 != ColorDefault {
+		result = result.Foreground(fg2)
+	}
+
+	// Apply background if explicitly set
+	if bgSet2 {
+		result = result.Background(bg2)
+	}
+
+	// Merge attributes
+	if attrs2 != AttrNone {
+		result = result.Attributes(attrs1 | attrs2)
+	}
+
+	return result
+}
+
 // --- Border Types ---
 
 // BorderType defines the style of border to draw.

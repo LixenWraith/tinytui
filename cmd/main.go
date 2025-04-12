@@ -75,8 +75,6 @@ func createSidebar(app *tinytui.Application, width int) *widgets.Pane {
 	themeList := widgets.NewList()
 	themeList.SetItems([]string{
 		"Default Theme",
-		"Tokyo Night",
-		"Catppuccin Mocha",
 		"Borland",
 	})
 
@@ -88,10 +86,6 @@ func createSidebar(app *tinytui.Application, width int) *widgets.Pane {
 		case 0:
 			themeName = tinytui.ThemeDefault
 		case 1:
-			themeName = tinytui.ThemeTokyoNight
-		case 2:
-			themeName = tinytui.ThemeCatppuccinMocha
-		case 3:
 			themeName = tinytui.ThemeBorland
 		default:
 			return
@@ -199,17 +193,18 @@ func createGridDemo() *widgets.Pane {
 
 	// Add interactivity to the grid
 	grid.SetOnSelect(func(row, col int, item string) {
-		// Change the title to show the selected cell
-		title.SetContent(fmt.Sprintf("Grid Widget Example - Selected: [%d,%d] %s",
+		title.SetContent(fmt.Sprintf("Grid Widget Example - Selected: [%d,%d] %s - Now in interacted state",
 			row, col, item))
 	})
 
 	// Also update on navigation
 	grid.SetOnChange(func(row, col int, item string) {
-		// Update the title to show the highlighted cell
-		title.SetContent(fmt.Sprintf("Grid Widget Example - Focus: [%d,%d]",
+		title.SetContent(fmt.Sprintf("Grid Widget Example - Focus: [%d,%d] - State persists across widgets",
 			row, col))
 	})
+
+	stateDesc := widgets.NewText("Selection state persists when focus moves to other widgets")
+	layout.AddChild(stateDesc, 1, 0)
 
 	// Add widgets to layout
 	layout.AddChild(title, 1, 0)
@@ -252,6 +247,10 @@ func createTextDemo() *widgets.Pane {
 		"List Item 4",
 	})
 
+	// State persistence
+	stateText := widgets.NewText("Selection state persists when focus changes between widgets")
+	stateText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
+
 	// Add interactivity to the list
 	list.SetOnSelect(func(index int, item string) {
 		// When an item is selected, update the text3 widget to show it
@@ -261,8 +260,7 @@ func createTextDemo() *widgets.Pane {
 
 	// Also show focus changes
 	list.SetOnChange(func(index int, item string) {
-		// When focus changes, update the text2 widget
-		text2.SetContent(fmt.Sprintf("List focus changed to: %s - Use arrow keys to navigate, Enter to select", item))
+		text2.SetContent(fmt.Sprintf("List focus on: %s - Selected state is maintained when focus moves to other widgets", item))
 		text2.SetWrap(true)
 	})
 
@@ -276,8 +274,10 @@ func createTextDemo() *widgets.Pane {
 	// This ensures the list is always visible
 	layout.AddChild(list, 5, 0) // Fixed 5 lines for list (including some margin)
 
+	layout.AddChild(stateText, 1, 0)
+
 	// Set layout as pane's child
-	pane.SetChild(layout)
+	// pane.SetChild(layout)
 
 	return pane
 }
@@ -308,18 +308,27 @@ func createButtonDemo() *widgets.Pane {
 	button2 := widgets.NewButton("Cancel")
 	button3 := widgets.NewButton("Help")
 
-	// Add actions to buttons as a demo
+	// Demo action and state changes
 	button1.SetOnClick(func() {
 		button1.SetLabel("Clicked!")
+		// Button will already be in StateInteracted from the HandleEvent
 	})
 
 	button2.SetOnClick(func() {
 		button2.SetLabel("Canceled")
+		// Reset state after processing to demonstrate state change
+		// This is optional - you might want the interacted state to persist
+		button2.ResetState()
 	})
 
 	button3.SetOnClick(func() {
 		button3.SetLabel("Helping!")
+		// Keep in interacted state to show state persistence
 	})
+
+	// Add description text explaining state management
+	stateDesc := widgets.NewText("Tab to another widget - selection state is preserved")
+	layout.AddChild(stateDesc, 1, 0)
 
 	// Add buttons to horizontal layout with FIXED WIDTH to ensure visibility
 	buttonLayout.AddChild(button1, 8, 0)  // Fixed width 8

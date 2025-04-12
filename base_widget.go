@@ -12,6 +12,15 @@ type keyModCombo struct {
 	Mod tcell.ModMask
 }
 
+// WidgetState enumeration
+type WidgetState int
+
+const (
+	StateNormal     WidgetState = iota // Normal, unselected state
+	StateSelected                      // Selected but not interacted
+	StateInteracted                    // Selected and interacted with
+)
+
 // BaseWidget provides a default implementation for the Widget interface.
 // Concrete widgets can embed this type to inherit default behavior.
 type BaseWidget struct {
@@ -21,7 +30,18 @@ type BaseWidget struct {
 	app         *Application                // Pointer back to the app for queuing redraws
 	parent      Widget                      // Pointer to the container widget
 	keyBindings map[keyModCombo]func() bool // Map for keybindings: Key+Mod -> handler
+	state       WidgetState                 // Current state of the widget (normal, selected, interacted)
 	mu          sync.RWMutex
+}
+
+// NewBaseWidget ensures all widgets start visible and unfocused with StateNormal
+func NewBaseWidget() BaseWidget {
+	return BaseWidget{
+		visible:     true,
+		focused:     false,
+		keyBindings: make(map[keyModCombo]func() bool),
+		state:       StateNormal,
+	}
 }
 
 // Draw checks visibility and returns early if the widget is not visible.
@@ -45,6 +65,45 @@ func (b *BaseWidget) GetRect() (x, y, width, height int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.rect.X, b.rect.Y, b.rect.Width, b.rect.Height
+}
+
+// SetState updates the widget's state and triggers a redraw if changed
+func (b *BaseWidget) SetState(state WidgetState) {
+	b.mu.Lock()
+	if b.state != state {
+		b.state = state
+		app := b.app
+		b.mu.Unlock()
+
+		if app != nil {
+			app.QueueRedraw()
+		}
+		return
+	}
+	b.mu.Unlock()
+}
+
+// GetState returns the current widget state
+func (b *BaseWidget) GetState() WidgetState {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.state
+}
+
+// IsSelected returns whether the widget is in StateSelected or StateInteracted
+func (b *BaseWidget) IsSelected() bool {
+	state := b.GetState()
+	return state == StateSelected || state == StateInteracted
+}
+
+// IsInteracted returns whether the widget is in StateInteracted
+func (b *BaseWidget) IsInteracted() bool {
+	return b.GetState() == StateInteracted
+}
+
+// ResetState resets the widget's state to StateNormal
+func (b *BaseWidget) ResetState() {
+	b.SetState(StateNormal)
 }
 
 // HandleEvent checks if the widget is visible, then processes registered keybindings.

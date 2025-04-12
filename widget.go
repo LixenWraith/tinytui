@@ -96,4 +96,20 @@ type Widget interface {
 
 	// PreferredHeight returns the widget's desired height, used for layout calculations
 	PreferredHeight() int
+
+	// SetState and GetState state management methods
+	SetState(state WidgetState)
+	GetState() WidgetState
+}
+
+// StateAware is an interface for widgets that provide additional state management
+type StateAware interface {
+	Widget
+
+	// Methods for checking specific states
+	IsSelected() bool
+	IsInteracted() bool
+
+	// Method to reset to normal state
+	ResetState()
 }

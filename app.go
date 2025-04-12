@@ -489,10 +489,12 @@ func (a *Application) SetFocus(widget Widget) {
 
 	// Call methods with captured references after releasing the lock
 	if oldWidget != nil {
+		// We no longer reset state here - state persists when focus changes
 		oldWidget.Blur()
 	}
 
 	if widget != nil {
+		// State should already be set from before and will persist
 		widget.Focus()
 	}
 
