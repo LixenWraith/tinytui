@@ -63,6 +63,10 @@ type Theme interface {
 	// Default cell dimensions for grid
 	DefaultCellWidth() int
 	DefaultCellHeight() int
+
+	// New methods for the added functionality
+	IndicatorColor() Color // Color for selection indicators
+	DefaultPadding() int   // Default padding for widgets
 }
 
 // themeManager handles the current theme and theme switching

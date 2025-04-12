@@ -22,12 +22,15 @@ type Grid struct {
 	leftCol                int                             // Index of the column displayed at the left
 	cellWidth              int                             // Fixed width for each cell (0 for auto - not implemented yet)
 	cellHeight             int                             // Fixed height for each cell (usually 1)
+	padding                int                             // Padding around cell content
 	style                  tinytui.Style                   // Normal style
 	selectedStyle          tinytui.Style                   // Selected, not focused
 	interactedStyle        tinytui.Style                   // Interacted, not focused
 	focusedStyle           tinytui.Style                   // Focused normal style
 	focusedSelectedStyle   tinytui.Style                   // Focused and selected
 	focusedInteractedStyle tinytui.Style                   // Focused and interacted
+	indicatorChar          rune                            // Character used as selection indicator
+	showIndicator          bool                            // Whether to show the indicator
 	onChange               func(row, col int, item string) // Callback when selection changes
 	onSelect               func(row, col int, item string) // Callback when item is selected (Space)
 }
@@ -43,14 +46,40 @@ func NewGrid() *Grid {
 		leftCol:                0,
 		cellHeight:             tinytui.DefaultCellHeight(),
 		cellWidth:              tinytui.DefaultCellWidth(),
+		padding:                0, // Default padding is 0
 		style:                  tinytui.DefaultGridStyle(),
 		selectedStyle:          tinytui.DefaultGridStyle().Dim(true).Underline(true),
 		interactedStyle:        tinytui.DefaultGridStyle().Bold(true),
 		focusedStyle:           tinytui.DefaultGridStyle(),
 		focusedSelectedStyle:   tinytui.DefaultGridSelectedStyle(),
 		focusedInteractedStyle: tinytui.DefaultGridSelectedStyle().Bold(true),
+		indicatorChar:          '>',
+		showIndicator:          true,
 	}
 	g.SetVisible(true) // Explicitly set visibility
+	return g
+}
+
+// SetPadding sets the padding around cell content
+func (g *Grid) SetPadding(padding int) *Grid {
+	g.mu.Lock()
+	g.padding = padding
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+// SetIndicator sets the indicator character and whether to show it
+func (g *Grid) SetIndicator(char rune, show bool) *Grid {
+	g.mu.Lock()
+	g.indicatorChar = char
+	g.showIndicator = show
+	g.mu.Unlock()
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
 	return g
 }
 
@@ -172,6 +201,10 @@ func (g *Grid) ApplyTheme(theme tinytui.Theme) {
 	g.SetFocusedStyle(theme.GridFocusedStyle())
 	g.SetFocusedSelectedStyle(theme.GridFocusedSelectedStyle())
 	g.SetFocusedInteractedStyle(theme.GridFocusedInteractedStyle())
+	g.SetPadding(theme.DefaultPadding())
+
+	// Update the indicator color through the style
+	g.SetIndicator('>', true) // Always use '>' as indicator
 }
 
 // SetOnChange sets the callback for when the selection changes via navigation.
@@ -320,6 +353,7 @@ func (g *Grid) triggerOnSelect() {
 }
 
 // Draw renders the visible portion of the grid.
+// Updated for consistent state display and indicators
 func (g *Grid) Draw(screen tcell.Screen) {
 	g.BaseWidget.Draw(screen)
 
@@ -333,8 +367,11 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	selRow, selCol := g.selectedRow, g.selectedCol
 	topRow, leftCol := g.topRow, g.leftCol
 	cWidth, cHeight := g.cellWidth, g.cellHeight
+	padding := g.padding
 	state := g.GetState()
-	isFocused := g.IsFocused() // Check focus state for drawing
+	isFocused := g.IsFocused()                    // Check focus state for drawing
+	showIndicator := g.showIndicator && isFocused // Only show indicator when focused
+	indicatorChar := g.indicatorChar
 
 	// Base style
 	baseStyle := g.style
@@ -345,6 +382,14 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	cells := g.cells
 	rows, cols := g.numRows, g.numCols
 	g.mu.RUnlock()
+
+	// Get indicator color from theme
+	indicatorStyle := baseStyle
+	if app := g.App(); app != nil {
+		if theme := app.GetTheme(); theme != nil {
+			indicatorStyle = indicatorStyle.Foreground(theme.IndicatorColor())
+		}
+	}
 
 	// Extract base colors for background fills
 	baseFg, baseBg, _, _ := baseStyle.Deconstruct()
@@ -417,12 +462,31 @@ func (g *Grid) Draw(screen tcell.Screen) {
 
 			// Draw content with full style including attributes
 			item := cells[gridRow][gridCol]
+
+			// Indicator for selected/focused cells
+			if isCurrentCell && showIndicator {
+				// Draw indicator at beginning of cell
+				if cellX >= x && cellX < x+width {
+					screen.SetContent(cellX, cellY, indicatorChar, nil, indicatorStyle.ToTcell())
+				}
+				// Adjust content position to account for indicator
+				cellX += 1
+				drawWidth -= 1
+			}
+
+			// Add padding to content position
+			contentX := cellX + padding
+			effectiveWidth := drawWidth - (padding * 2)
+			if effectiveWidth < 1 {
+				effectiveWidth = 1
+			}
+
 			// Simple truncation for drawing within the cell
-			displayText := runewidth.Truncate(item, drawWidth, "") // Use runewidth for truncation
+			displayText := runewidth.Truncate(item, effectiveWidth, "") // Use runewidth for truncation
 
 			// Draw only on the first line of the cell area for now
-			if cellY >= y && cellY < y+height { // Ensure Y is within bounds
-				tinytui.DrawText(screen, cellX, cellY, cellStyle, displayText)
+			if cellY >= y && cellY < y+height && contentX >= x && contentX < x+width {
+				tinytui.DrawText(screen, contentX, cellY, cellStyle, displayText)
 			}
 		}
 	}
@@ -451,6 +515,7 @@ func (g *Grid) Focusable() bool {
 }
 
 // HandleEvent handles keyboard navigation (arrows, vim keys) and selection (Enter/Space).
+// Updated for consistent key handling across widgets
 func (g *Grid) HandleEvent(event tcell.Event) bool {
 	// Allow BaseWidget to handle its own potential keybindings first
 	if g.BaseWidget.HandleEvent(event) {
@@ -492,15 +557,34 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		newCol++
 		needsRedraw = true
 
-	// Enter for Selection
+	// Enter toggles interaction state
 	case tcell.KeyEnter:
-		// Set state to interacted
-		g.SetState(tinytui.StateInteracted)
-		g.mu.Unlock()       // Unlock before calling callback
-		g.triggerOnSelect() // Trigger the selection callback
-		return true         // Enter consumed
+		if g.GetState() == tinytui.StateInteracted {
+			g.SetState(tinytui.StateNormal)
+		} else {
+			g.SetState(tinytui.StateInteracted)
+		}
+		g.mu.Unlock()
+		g.triggerOnSelect() // Always trigger selection callback
+		if app := g.App(); app != nil {
+			app.QueueRedraw()
+		}
+		return true // Enter consumed
 
-	// Vim Keys (h,j,k,l)
+	// Backspace cancels interaction
+	case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+		if g.GetState() == tinytui.StateInteracted {
+			g.SetState(tinytui.StateNormal)
+			g.mu.Unlock()
+			if app := g.App(); app != nil {
+				app.QueueRedraw()
+			}
+			return true
+		}
+		g.mu.Unlock()
+		return false
+
+	// Vim Keys (h,j,k,l) and Space
 	case tcell.KeyRune:
 		switch keyEvent.Rune() {
 		case 'k': // Up
@@ -515,14 +599,10 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		case 'l': // Right
 			newCol++
 			needsRedraw = true
-		case ' ': // Space
-			currentState := g.GetState()
-			if currentState != tinytui.StateSelected {
-				g.SetState(tinytui.StateSelected)
-			} else {
-				g.SetState(tinytui.StateNormal)
-			}
+		case ' ': // Space creates interaction
+			g.SetState(tinytui.StateInteracted)
 			g.mu.Unlock()
+			g.triggerOnSelect() // Trigger selection callback
 			if app := g.App(); app != nil {
 				app.QueueRedraw()
 			}
@@ -553,8 +633,10 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 
 		// Trigger callbacks and redraw outside the lock
 		if indexChanged {
-			// When the selection changes, set state to selected
-			g.SetState(tinytui.StateSelected)
+			// When the selection changes, set state to selected if not already interacted
+			if g.GetState() != tinytui.StateInteracted {
+				g.SetState(tinytui.StateSelected)
+			}
 			g.triggerOnChange() // Selection moved
 		}
 		if app := g.App(); app != nil {
@@ -563,7 +645,7 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		return true // Navigation key consumed
 	}
 
-	// Should not be reached if needsRedraw was false, but unlock just in case
+	// Should not be reached if needsRedraw was true, but unlock just in case
 	g.mu.Unlock()
 	return false
 }

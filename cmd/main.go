@@ -111,7 +111,7 @@ func createSidebar(app *tinytui.Application, width int) *widgets.Pane {
 
 	// Add widgets to the sidebar layout
 	sidebarLayout.AddChild(titleText, 2, 0)
-	sidebarLayout.AddChild(themeList, 0, 1)
+	// sidebarLayout.AddChild(themeList, 0, 1)
 
 	// Add instructions text at the bottom
 	instructionsText := widgets.NewText("Press Enter to select theme")
@@ -181,6 +181,7 @@ func createGridDemo() *widgets.Pane {
 	// Create a grid
 	grid := widgets.NewGrid()
 	grid.SetCellSize(10, 1) // Set cell size a bit larger for better readability
+	grid.SetPadding(1)      // Add padding for better visibility
 
 	// Create sample data
 	data := [][]string{
@@ -272,7 +273,7 @@ func createTextDemo() *widgets.Pane {
 
 	// Give the list a fixed height of at least 4 rows to show all items
 	// This ensures the list is always visible
-	layout.AddChild(list, 5, 0) // Fixed 5 lines for list (including some margin)
+	// layout.AddChild(list, 5, 0) // Fixed 5 lines for list (including some margin)
 
 	layout.AddChild(stateText, 1, 0)
 
@@ -303,27 +304,30 @@ func createButtonDemo() *widgets.Pane {
 	buttonLayout.SetMainAxisAlignment(tinytui.AlignCenter)  // Center buttons horizontally
 	buttonLayout.SetCrossAxisAlignment(tinytui.AlignCenter) // Center buttons vertically
 
-	// Create buttons
+	// Create buttons with indicators
 	button1 := widgets.NewButton("OK")
+	button1.SetIndicator('>', widgets.IndicatorLeft) // Show indicator on left
+
 	button2 := widgets.NewButton("Cancel")
+	button2.SetIndicator('>', widgets.IndicatorLeft)
+
 	button3 := widgets.NewButton("Help")
+	button3.SetIndicator('>', widgets.IndicatorLeft)
 
 	// Demo action and state changes
 	button1.SetOnClick(func() {
 		button1.SetLabel("Clicked!")
-		// Button will already be in StateInteracted from the HandleEvent
+		// State is now StateInteracted from HandleEvent
 	})
 
 	button2.SetOnClick(func() {
 		button2.SetLabel("Canceled")
-		// Reset state after processing to demonstrate state change
-		// This is optional - you might want the interacted state to persist
-		button2.ResetState()
+		// State is now StateInteracted, no need to reset it manually
 	})
 
 	button3.SetOnClick(func() {
 		button3.SetLabel("Helping!")
-		// Keep in interacted state to show state persistence
+		// State is now StateInteracted from HandleEvent
 	})
 
 	// Add description text explaining state management
@@ -338,12 +342,13 @@ func createButtonDemo() *widgets.Pane {
 	layout.AddChild(spacer1, 1, 0)
 
 	// Add buttons to horizontal layout with FIXED WIDTH to ensure visibility
-	buttonLayout.AddChild(button1, 8, 0)  // Fixed width 8
-	buttonLayout.AddChild(button2, 10, 0) // Fixed width 10
-	buttonLayout.AddChild(button3, 8, 0)  // Fixed width 8
+	// Increase widths to ensure buttons are properly visible
+	buttonLayout.AddChild(button1, 10, 0) // Increased from 8 to 10
+	buttonLayout.AddChild(button2, 12, 0) // Increased from 10 to 12
+	buttonLayout.AddChild(button3, 10, 0) // Increased from 8 to 10
 
-	// Use fixed height (3) for button row to ensure visibility - INCREASED HEIGHT
-	layout.AddChild(buttonLayout, 3, 0)
+	// Increase button layout height for better visibility
+	layout.AddChild(buttonLayout, 3, 0) // Fixed height 3
 
 	// Add description text with proper spacing
 	spacer2 := widgets.NewText("")

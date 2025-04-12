@@ -224,6 +224,14 @@ func (b *Button) Draw(screen tcell.Screen) {
 
 	b.mu.RUnlock() // Release lock
 
+	// Get indicator color from theme
+	indicatorStyle := currentStyle
+	if app := b.App(); app != nil {
+		if theme := app.GetTheme(); theme != nil {
+			indicatorStyle = indicatorStyle.Foreground(theme.IndicatorColor())
+		}
+	}
+
 	// Extract colors for background fill (without attributes)
 	fg, bg, _, _ := currentStyle.Deconstruct()
 	fillStyle := tinytui.DefaultStyle.Foreground(fg).Background(bg)
@@ -342,8 +350,8 @@ func (b *Button) Draw(screen tcell.Screen) {
 
 	// Draw Indicator (if shown and space permits)
 	if showIndicator && indicatorX >= x && indicatorX+indicatorWidth <= x+width {
-		// Use the exported ToTcell() method here with full style
-		screen.SetContent(indicatorX, y, indicatorChar, nil, currentStyle.ToTcell())
+		// Use the indicator style with theme color
+		screen.SetContent(indicatorX, textY, indicatorChar, nil, indicatorStyle.ToTcell())
 	}
 }
 
@@ -383,32 +391,42 @@ func (b *Button) HandleEvent(event tcell.Event) bool {
 	clickHandler := b.onClick
 	b.mu.RUnlock()
 
-	// Handle activation keys (Enter)
+	// Handle key events
 	if keyEvent, ok := event.(*tcell.EventKey); ok {
-		if keyEvent.Key() == tcell.KeyEnter {
-			// Set state to interacted
-			b.SetState(tinytui.StateInteracted)
+		switch keyEvent.Key() {
+		case tcell.KeyEnter:
+			// Toggle interaction state
+			if b.GetState() == tinytui.StateInteracted {
+				b.SetState(tinytui.StateNormal)
+			} else {
+				b.SetState(tinytui.StateInteracted)
+			}
 
 			// Trigger callback if set
 			if clickHandler != nil {
 				clickHandler()
 			}
 
-			// Note: We keep the interacted state after clicking
-			// Optionally, we could reset it after a delay or leave it to the app logic
-
 			return true // Enter key consumed
 
-		} else if keyEvent.Key() == tcell.KeyRune {
+		case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
+			// Cancel interaction
+			if b.GetState() == tinytui.StateInteracted {
+				b.SetState(tinytui.StateNormal)
+				return true
+			}
+			return false
+
+		case tcell.KeyRune:
 			if keyEvent.Rune() == ' ' {
-				// Space selects but doesn't activate
-				currentState := b.GetState()
-				if currentState != tinytui.StateSelected {
-					b.SetState(tinytui.StateSelected)
-				} else {
-					// Toggle selection off if already selected
-					b.SetState(tinytui.StateNormal)
+				// Space creates interaction
+				b.SetState(tinytui.StateInteracted)
+
+				// Trigger callback if set
+				if clickHandler != nil {
+					clickHandler()
 				}
+
 				return true // Space key consumed
 			}
 		}

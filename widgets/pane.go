@@ -123,6 +123,7 @@ func (p *Pane) SetFocusBorderStyle(style tinytui.Style) *Pane {
 }
 
 // Draw draws the pane, including its border, background, and child widget.
+// Updated to use the correct border type based on focus state
 func (p *Pane) Draw(screen tcell.Screen) {
 	p.BaseWidget.Draw(screen)
 
@@ -141,6 +142,14 @@ func (p *Pane) Draw(screen tcell.Screen) {
 
 	if isFocused && borderEnabled { // Use focus style only if border is enabled
 		currentBorderStyle = p.focusBorderStyle
+		// Get theme's default border type for focused pane if we're using Borland theme
+		app := p.App()
+		if app != nil {
+			if theme := app.GetTheme(); theme != nil && theme.Name() == tinytui.ThemeBorland {
+				bType = tinytui.BorderDouble // Use double border for Borland when focused
+			}
+		}
+
 		// Ensure focus background matches original if not explicitly set in focus style
 		_, _, _, bgSet := currentBorderStyle.Deconstruct()
 		if !bgSet {
@@ -258,8 +267,7 @@ func hasFocusableDescendant(w tinytui.Widget) bool {
 }
 
 // Focusable indicates if the Pane itself should receive focus.
-// It should only be focusable if it's visible AND it does not contain
-// any focusable descendants.
+// Updated to only be focusable if it contains no focusable descendants
 func (p *Pane) Focusable() bool {
 	if !p.IsVisible() {
 		return false
