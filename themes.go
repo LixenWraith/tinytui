@@ -5,16 +5,18 @@ import "github.com/gdamore/tcell/v2"
 
 func NewDefaultTheme() Theme {
 	baseStyle := DefaultStyle
-	selectedStyle := baseStyle.Reverse(true)
-	interactedStyle := baseStyle.Bold(true)
+
+	// Enhance selection visibility
+	selectedStyle := baseStyle.Background(tcell.ColorGray).Foreground(tcell.ColorBlack)
+	interactedStyle := baseStyle.Foreground(tcell.ColorBlue).Bold(true)
 	focusedStyle := baseStyle
-	focusedSelectedStyle := baseStyle.Reverse(true).Underline(true)
-	focusedInteractedStyle := baseStyle.Reverse(true).Bold(true)
+	focusedSelectedStyle := baseStyle.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack).Bold(true)
+	focusedInteractedStyle := baseStyle.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
 
 	return &BaseTheme{
 		name:              ThemeDefault,
 		textStyle:         DefaultStyle,
-		textSelectedStyle: DefaultStyle.Reverse(true),
+		textSelectedStyle: selectedStyle,
 
 		// Grid styles
 		gridStyle:                  baseStyle,
@@ -35,35 +37,46 @@ func NewDefaultTheme() Theme {
 
 		// Add new theme properties
 		indicatorColor: ColorRed, // Red indicators for default theme
-		defaultPadding: 0,        // No default padding
+		defaultPadding: 1,        // Add default padding for better readability
 	}
 }
 
-// NewBorlandTheme creates a classic Borland blue theme
-func NewBorlandTheme() Theme {
-	// Updated Borland-style colors
-	bgColor := tcell.ColorDarkBlue           // Darker Blue #0000AA
-	fgColor := tcell.ColorWhite              // White text
-	highlightBg := tcell.ColorLightCyan      // Cyan for selection
-	highlightFg := tcell.ColorBlack          // Black text on selection
-	borderColor := tcell.ColorWhite          // White borders
-	borderFocusColor := tcell.ColorYellow    // Yellow for focused borders
-	indicatorColor := tcell.ColorRed         // Red for focus indicators
-	interactedColor := tcell.ColorLightGreen // Light green for interacted items
+// NewTurboTheme creates a classic blue theme
+func NewTurboTheme() Theme {
+	// High contrast colors
+	bgColor := tcell.ColorDarkBlue
+	fgColor := tcell.ColorWhite
+
+	// Selection colors - highlighting
+	highlightBg := tcell.ColorYellow
+	highlightFg := tcell.ColorBlack
+	unfocusedHighlightBg := tcell.ColorDarkBlue
+	unfocusedHighlightFg := tcell.ColorYellow
+
+	// Interaction colors - buttons/toggled items
+	interactedBg := tcell.ColorGreen
+	interactedFg := tcell.ColorBlack
+	unfocusedInteractedBg := tcell.ColorDarkBlue
+	unfocusedInteractedFg := tcell.ColorGreen
+
+	// Border and indicator colors
+	borderColor := tcell.ColorWhite
+	borderFocusColor := tcell.ColorYellow
+	indicatorColor := tcell.ColorRed
 
 	baseStyle := DefaultStyle.
 		Background(bgColor).
 		Foreground(fgColor)
 
-	// Define all the state styles
-	selectedStyle := DefaultStyle.Background(highlightBg).Foreground(highlightFg)
-	interactedStyle := DefaultStyle.Background(bgColor).Foreground(interactedColor).Bold(true)
+	// Define all the state styles with enhanced contrast and visibility
+	selectedStyle := DefaultStyle.Background(unfocusedHighlightBg).Foreground(unfocusedHighlightFg).Bold(true)
+	interactedStyle := DefaultStyle.Background(unfocusedInteractedBg).Foreground(unfocusedInteractedFg).Bold(true)
 	focusedStyle := baseStyle
-	focusedSelectedStyle := selectedStyle.Underline(true)
-	focusedInteractedStyle := DefaultStyle.Background(highlightBg).Foreground(interactedColor).Bold(true)
+	focusedSelectedStyle := DefaultStyle.Background(highlightBg).Foreground(highlightFg)
+	focusedInteractedStyle := DefaultStyle.Background(interactedBg).Foreground(interactedFg)
 
 	return &BaseTheme{
-		name:              ThemeBorland,
+		name:              ThemeTurbo,
 		textStyle:         baseStyle,
 		textSelectedStyle: selectedStyle,
 
@@ -86,6 +99,6 @@ func NewBorlandTheme() Theme {
 
 		// Add indicator color to the theme
 		indicatorColor: indicatorColor,
-		defaultPadding: 0, // Default padding should be 0
+		defaultPadding: 1, // Increase default padding for better readability
 	}
 }

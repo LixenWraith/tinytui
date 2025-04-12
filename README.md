@@ -15,6 +15,7 @@ TinyTUI is a lightweight, flexible terminal UI library for Go applications that 
 - **Styling & Theming**: Comprehensive styling options with colors and text attributes
 - **Event Handling**: Keyboard and mouse event handling with focus management
 - **Modal Dialogs**: Support for modal interfaces with proper focus handling
+- **Multiple Selection Modes**: Single-select (radio button) and multi-select (checkbox) interfaces
 
 ## Installation
 
@@ -22,7 +23,7 @@ TinyTUI is a lightweight, flexible terminal UI library for Go applications that 
 go get github.com/LixenWraith/tinytui
 ```
 
-TinyTUI requires Go 1.18 or newer.
+TinyTUI requires Go 1.23 or newer.
 
 ## Dependencies
 
@@ -87,7 +88,7 @@ The `Application` is the main controller that:
 ```go
 app := tinytui.NewApplication()
 app.SetRoot(rootWidget, true)
-app.SetTheme(tinytui.ThemeBorland) // Apply a theme
+app.SetTheme(tinytui.ThemeTurbo) // Apply a theme
 app.Run()
 ```
 
@@ -125,7 +126,7 @@ Built-in widgets include:
 - **Text**: Display static or wrapping text
 - **Button**: User-clickable button with custom handlers
 - **List**: Scrollable list of selectable items
-- **Grid**: 2D grid of selectable cells
+- **Grid**: 2D grid of selectable cells, supporting both single and multi-selection
 - **Pane**: Container with optional border and background
 - **Sprite**: Fixed graphical element with styled characters
 
@@ -185,6 +186,39 @@ if myWidget.IsInteracted() {
 myWidget.ResetState()
 ```
 
+### Grid Selection Modes
+
+Grids can operate in two selection modes:
+
+```go
+// Selection mode types
+const (
+    SingleSelect SelectionMode = iota // Only one item can be selected/interacted at a time
+    MultiSelect                       // Multiple items can be selected/interacted
+)
+
+// Create a single-select grid (like radio buttons)
+themeSelector := widgets.NewGrid()
+themeSelector.SetSelectionMode(widgets.SingleSelect)
+themeSelector.SetCells([][]string{
+    {"Light Theme"},
+    {"Dark Theme"},
+    {"Turbo"},
+})
+
+// Create a multi-select grid (like checkboxes)
+optionsGrid := widgets.NewGrid()
+optionsGrid.SetSelectionMode(widgets.MultiSelect)
+optionsGrid.SetCells([][]string{
+    {"Enable Logging"},
+    {"Show Line Numbers"},
+    {"Auto Save"},
+})
+
+// Get all interacted cells from a grid
+interactedCells := optionsGrid.GetInteractedCells()
+```
+
 ### Event Handling
 
 Events are processed through the widget hierarchy. Focused widgets get priority:
@@ -210,15 +244,15 @@ TinyTUI includes a comprehensive theme system that provides consistent styling a
 
 TinyTUI comes with several built-in themes:
 
-- **Default**: Basic theme using terminal defaults
-- **Borland**: Classic blue background with white text reminiscent of 1990s DOS applications
+- **Default**: Basic theme using terminal defaults (transparent background)
+- **Turbo**: Classic high-contrast blue background with white text reminiscent of 1990s DOS applications (non-transparent background)
 
 ### Using Themes
 
 ```go
 // At application startup
 app := tinytui.NewApplication()
-app.SetTheme(tinytui.ThemeBorland)
+app.SetTheme(tinytui.ThemeTurbo)
 
 // Or change the theme at runtime
 app.SetTheme(tinytui.ThemeDefault)
@@ -374,15 +408,15 @@ confirmDialog.SetVisible(false) // Initially hidden
 
 // Show modal when needed
 app.Dispatch(func(app *tinytui.Application) {
-confirmDialog.SetVisible(true)
-app.SetModalRoot(confirmDialog)
-app.SetFocus(findFirstFocusableIn(confirmDialog))
+    confirmDialog.SetVisible(true)
+    app.SetModalRoot(confirmDialog)
+    app.SetFocus(findFirstFocusableIn(confirmDialog))
 })
 
 // Close modal
 app.Dispatch(func(app *tinytui.Application) {
-app.ClearModalRoot()
-confirmDialog.SetVisible(false)
+    app.ClearModalRoot()
+    confirmDialog.SetVisible(false)
 })
 ```
 
@@ -392,13 +426,13 @@ TinyTUI's event-driven architecture ensures thread safety. Use `Dispatch` to int
 
 ```go
 go func() {
-// Do background work...
+    // Do background work...
 
-// Update UI safely
-app.Dispatch(func(app *tinytui.Application) {
-statusText.SetContent("Task completed!")
-app.QueueRedraw()
-})
+    // Update UI safely
+    app.Dispatch(func(app *tinytui.Application) {
+        statusText.SetContent("Task completed!")
+        app.QueueRedraw()
+    })
 }()
 ```
 
@@ -411,6 +445,7 @@ app.QueueRedraw()
 5. **Error Handling**: Always check errors returned by `app.Run()`
 6. **Consistent Theming**: Use the theme system for consistent styling across your application
 7. **Layout Spacing**: Use spacer widgets and proper gaps to ensure good UI spacing
+8. **Selection Modes**: Use single-select for exclusive choices, multi-select for independent options
 
 ## Common Patterns
 
@@ -418,17 +453,48 @@ app.QueueRedraw()
 
 ```go
 type Model struct {
-Name string
-Email string
-// other fields...
+    Name string
+    Email string
+    // other fields...
 }
 
 func bindModelToForm(model *Model, nameText, emailText *widgets.Text) {
-// Update UI from model
-nameText.SetContent(model.Name)
-emailText.SetContent(model.Email)
+    // Update UI from model
+    nameText.SetContent(model.Name)
+    emailText.SetContent(model.Email)
 
-// Update model from UI handled in event handlers
+    // Update model from UI handled in event handlers
+}
+```
+
+### Grid Selections and Interactions
+
+```go
+// Create a multi-select grid for todo items
+todoGrid := widgets.NewGrid()
+todoGrid.SetSelectionMode(widgets.MultiSelect)
+
+// Handle toggling item state
+todoGrid.SetOnSelect(func(row, col int, item string) {
+    // Toggle completion when the user selects an item
+    if todoGrid.IsCellInteracted(row, col) {
+        statusText.SetContent(fmt.Sprintf("Marked '%s' as completed", item))
+    } else {
+        statusText.SetContent(fmt.Sprintf("Marked '%s' as incomplete", item))
+    }
+    
+    // Update visualization
+    updateTodoDisplay()
+})
+
+// Get all completed items
+func getCompletedItems() []string {
+    var completed []string
+    for _, cell := range todoGrid.GetInteractedCells() {
+        item := todoItems[cell.Row]
+        completed = append(completed, item)
+    }
+    return completed
 }
 ```
 

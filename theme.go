@@ -15,8 +15,8 @@ const (
 	ThemeTokyoNight ThemeName = "tokyo-night"
 	// ThemeCatppuccinMocha is inspired by the Catppuccin Mocha color scheme
 	ThemeCatppuccinMocha ThemeName = "catppuccin-mocha"
-	// ThemeBorland is inspired by classic Borland DOS applications
-	ThemeBorland ThemeName = "borland"
+	// ThemeTurbo is loosely inspired by turbo vision color scheme
+	ThemeTurbo ThemeName = "turbo"
 )
 
 // Theme defines the interface for a UI theme
@@ -133,7 +133,7 @@ func SubscribeThemeChange(callback func(Theme)) {
 func init() {
 	// Register all predefined themes
 	RegisterTheme(NewDefaultTheme())
-	RegisterTheme(NewBorlandTheme())
+	RegisterTheme(NewTurboTheme())
 
 	// Set default theme
 	SetTheme(ThemeDefault)

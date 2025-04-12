@@ -2,11 +2,20 @@
 package widgets
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/LixenWraith/tinytui"
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
+)
+
+// SelectionMode defines whether a Grid allows single or multiple selections
+type SelectionMode int
+
+const (
+	SingleSelect SelectionMode = iota // Only one item can be selected/interacted at a time
+	MultiSelect                       // Multiple items can be selected/interacted
 )
 
 // Grid displays a 2D grid of text items, allowing navigation and selection.
@@ -33,6 +42,8 @@ type Grid struct {
 	showIndicator          bool                            // Whether to show the indicator
 	onChange               func(row, col int, item string) // Callback when selection changes
 	onSelect               func(row, col int, item string) // Callback when item is selected (Space)
+	interactedCells        map[string]bool                 // Track interacted cells using "row:col" as key
+	selectionMode          SelectionMode                   // Single or multi selection mode
 }
 
 // NewGrid creates a new, empty Grid widget.
@@ -46,7 +57,7 @@ func NewGrid() *Grid {
 		leftCol:                0,
 		cellHeight:             tinytui.DefaultCellHeight(),
 		cellWidth:              tinytui.DefaultCellWidth(),
-		padding:                0, // Default padding is 0
+		padding:                tinytui.DefaultPadding(), // Use theme's default padding
 		style:                  tinytui.DefaultGridStyle(),
 		selectedStyle:          tinytui.DefaultGridStyle().Dim(true).Underline(true),
 		interactedStyle:        tinytui.DefaultGridStyle().Bold(true),
@@ -55,6 +66,8 @@ func NewGrid() *Grid {
 		focusedInteractedStyle: tinytui.DefaultGridSelectedStyle().Bold(true),
 		indicatorChar:          '>',
 		showIndicator:          true,
+		interactedCells:        make(map[string]bool),
+		selectionMode:          SingleSelect, // Default to single selection
 	}
 	g.SetVisible(true) // Explicitly set visibility
 	return g
@@ -80,6 +93,14 @@ func (g *Grid) SetIndicator(char rune, show bool) *Grid {
 	if app := g.App(); app != nil {
 		app.QueueRedraw()
 	}
+	return g
+}
+
+// SetSelectionMode sets whether the grid allows single or multiple selections
+func (g *Grid) SetSelectionMode(mode SelectionMode) *Grid {
+	g.mu.Lock()
+	g.selectionMode = mode
+	g.mu.Unlock()
 	return g
 }
 
@@ -265,6 +286,45 @@ func (g *Grid) SetSelectedIndex(row, col int) *Grid {
 	return g
 }
 
+// IsCellInteracted checks if a specific cell is in the interacted state
+func (g *Grid) IsCellInteracted(row, col int) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	cellKey := fmt.Sprintf("%d:%d", row, col)
+	return g.interactedCells[cellKey]
+}
+
+// GetInteractedCells returns all cells that are in the interacted state
+func (g *Grid) GetInteractedCells() []struct{ Row, Col int } {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	var result []struct{ Row, Col int }
+
+	// Extract row/col from the cellKey in interactedCells
+	for cellKey := range g.interactedCells {
+		var row, col int
+		// Parse the "row:col" format
+		if _, err := fmt.Sscanf(cellKey, "%d:%d", &row, &col); err == nil {
+			result = append(result, struct{ Row, Col int }{Row: row, Col: col})
+		}
+	}
+
+	return result
+}
+
+// ClearInteractions removes all interactions from the grid
+func (g *Grid) ClearInteractions() *Grid {
+	g.mu.Lock()
+	g.interactedCells = make(map[string]bool)
+	g.mu.Unlock()
+
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
 // clampIndices ensures selection and scroll indices are valid.
 // Must be called with g.mu held.
 func (g *Grid) clampIndices() {
@@ -368,9 +428,8 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	topRow, leftCol := g.topRow, g.leftCol
 	cWidth, cHeight := g.cellWidth, g.cellHeight
 	padding := g.padding
-	state := g.GetState()
-	isFocused := g.IsFocused()                    // Check focus state for drawing
-	showIndicator := g.showIndicator && isFocused // Only show indicator when focused
+	isFocused := g.IsFocused()
+	showIndicator := g.showIndicator // Now we use this to reserve space, not just for display
 	indicatorChar := g.indicatorChar
 
 	// Base style
@@ -381,6 +440,12 @@ func (g *Grid) Draw(screen tcell.Screen) {
 
 	cells := g.cells
 	rows, cols := g.numRows, g.numCols
+
+	// Copy the interacted cells map to avoid holding lock during drawing
+	interactedCells := make(map[string]bool)
+	for k, v := range g.interactedCells {
+		interactedCells[k] = v
+	}
 	g.mu.RUnlock()
 
 	// Get indicator color from theme
@@ -432,24 +497,33 @@ func (g *Grid) Draw(screen tcell.Screen) {
 			// Determine cell style based on focus, selection state
 			cellStyle := baseStyle
 
-			// Check if this is the currently selected cell
+			// Check if this is the currently selected cell and/or interacted
 			isCurrentCell := (gridRow == selRow && gridCol == selCol)
+			cellKey := fmt.Sprintf("%d:%d", gridRow, gridCol)
+			isInteracted := interactedCells[cellKey]
 
 			if isCurrentCell {
 				if isFocused {
 					// Focused and selected cell
-					if state == tinytui.StateInteracted {
+					if isInteracted {
 						cellStyle = g.focusedInteractedStyle
 					} else {
 						cellStyle = g.focusedSelectedStyle
 					}
 				} else {
 					// Not focused but selected cell
-					if state == tinytui.StateInteracted {
+					if isInteracted {
 						cellStyle = g.interactedStyle
 					} else {
 						cellStyle = g.selectedStyle
 					}
+				}
+			} else if isInteracted {
+				// Not selected but interacted
+				if isFocused {
+					cellStyle = g.interactedStyle.Bold(true) // Add emphasis for focused window
+				} else {
+					cellStyle = g.interactedStyle
 				}
 			}
 
@@ -463,13 +537,20 @@ func (g *Grid) Draw(screen tcell.Screen) {
 			// Draw content with full style including attributes
 			item := cells[gridRow][gridCol]
 
-			// Indicator for selected/focused cells
-			if isCurrentCell && showIndicator {
-				// Draw indicator at beginning of cell
-				if cellX >= x && cellX < x+width {
-					screen.SetContent(cellX, cellY, indicatorChar, nil, indicatorStyle.ToTcell())
+			// Always reserve space for indicator if enabled, draw only when on current cell
+			if showIndicator {
+				if isCurrentCell && isFocused {
+					// Draw indicator for current cell when focused
+					if cellX >= x && cellX < x+width {
+						screen.SetContent(cellX, cellY, indicatorChar, nil, indicatorStyle.ToTcell())
+					}
+				} else {
+					// Draw empty space for indicator position to maintain alignment
+					if cellX >= x && cellX < x+width {
+						screen.SetContent(cellX, cellY, ' ', nil, cellFillStyle.ToTcell())
+					}
 				}
-				// Adjust content position to account for indicator
+				// Always adjust content position by indicator width
 				cellX += 1
 				drawWidth -= 1
 			}
@@ -482,7 +563,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 			}
 
 			// Simple truncation for drawing within the cell
-			displayText := runewidth.Truncate(item, effectiveWidth, "") // Use runewidth for truncation
+			displayText := runewidth.Truncate(item, effectiveWidth, "")
 
 			// Draw only on the first line of the cell area for now
 			if cellY >= y && cellY < y+height && contentX >= x && contentX < x+width {
@@ -531,6 +612,7 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 
 	currentRow, currentCol := g.selectedRow, g.selectedCol
 	rows, cols := g.numRows, g.numCols
+	selectionMode := g.selectionMode
 
 	// If grid is empty or has no selection, cannot handle navigation/selection
 	if rows <= 0 || cols <= 0 || currentRow < 0 || currentCol < 0 {
@@ -557,24 +639,35 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		newCol++
 		needsRedraw = true
 
-	// Enter toggles interaction state
+	// Enter toggles interaction state for the current cell
 	case tcell.KeyEnter:
-		if g.GetState() == tinytui.StateInteracted {
-			g.SetState(tinytui.StateNormal)
-		} else {
-			g.SetState(tinytui.StateInteracted)
+		cellKey := fmt.Sprintf("%d:%d", currentRow, currentCol)
+		isInteracted := g.interactedCells[cellKey]
+
+		if selectionMode == SingleSelect {
+			// For single select, clear all other interactions first
+			g.interactedCells = make(map[string]bool)
 		}
+
+		// Toggle the current cell's interaction state
+		if isInteracted {
+			delete(g.interactedCells, cellKey)
+		} else {
+			g.interactedCells[cellKey] = true
+		}
+
 		g.mu.Unlock()
-		g.triggerOnSelect() // Always trigger selection callback
+		g.triggerOnSelect() // Trigger selection callback
 		if app := g.App(); app != nil {
 			app.QueueRedraw()
 		}
 		return true // Enter consumed
 
-	// Backspace cancels interaction
+	// Backspace cancels interaction on the current cell
 	case tcell.KeyBackspace, tcell.KeyBackspace2, tcell.KeyDelete:
-		if g.GetState() == tinytui.StateInteracted {
-			g.SetState(tinytui.StateNormal)
+		cellKey := fmt.Sprintf("%d:%d", currentRow, currentCol)
+		if g.interactedCells[cellKey] {
+			delete(g.interactedCells, cellKey)
 			g.mu.Unlock()
 			if app := g.App(); app != nil {
 				app.QueueRedraw()
@@ -599,8 +692,22 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 		case 'l': // Right
 			newCol++
 			needsRedraw = true
-		case ' ': // Space creates interaction
-			g.SetState(tinytui.StateInteracted)
+		case ' ': // Space creates/toggles interaction
+			cellKey := fmt.Sprintf("%d:%d", currentRow, currentCol)
+			isInteracted := g.interactedCells[cellKey]
+
+			if selectionMode == SingleSelect {
+				// For single select, clear all other interactions first
+				g.interactedCells = make(map[string]bool)
+			}
+
+			// Toggle the current cell's interaction state
+			if isInteracted {
+				delete(g.interactedCells, cellKey)
+			} else {
+				g.interactedCells[cellKey] = true
+			}
+
 			g.mu.Unlock()
 			g.triggerOnSelect() // Trigger selection callback
 			if app := g.App(); app != nil {
@@ -633,10 +740,6 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 
 		// Trigger callbacks and redraw outside the lock
 		if indexChanged {
-			// When the selection changes, set state to selected if not already interacted
-			if g.GetState() != tinytui.StateInteracted {
-				g.SetState(tinytui.StateSelected)
-			}
 			g.triggerOnChange() // Selection moved
 		}
 		if app := g.App(); app != nil {

@@ -167,16 +167,11 @@ func (p *Pane) Draw(screen tcell.Screen) {
 	if childFocused && borderEnabled {
 		currentBorderStyle = p.focusBorderStyle
 
-		// Use double border for Borland theme when a child is focused
-		app := p.App()
-		if app != nil {
-			if theme := app.GetTheme(); theme != nil && theme.Name() == tinytui.ThemeBorland {
-				bType = tinytui.BorderDouble // Use double border for Borland when child is focused
-			}
-		}
+		// Use double border when a child is focused
+		// TODO: Add focused border style to theme
+		bType = tinytui.BorderDouble
 	}
 
-	// Rest of the drawing code remains unchanged
 	// Calculate content area with proper border handling
 	contentX, contentY, contentWidth, contentHeight := x, y, width, height
 
@@ -314,8 +309,6 @@ func (p *Pane) HandleEvent(event tcell.Event) bool {
 	// For now, we don't have any pane-specific actions.
 	return false
 }
-
-// --- Container Methods ---
 
 // SetChild sets the single child widget contained within the pane.
 func (p *Pane) SetChild(widget tinytui.Widget) *Pane {

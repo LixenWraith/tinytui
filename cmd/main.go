@@ -78,9 +78,10 @@ func createSidebar(app *tinytui.Application) *widgets.Pane {
 	themeGrid := widgets.NewGrid()
 	themeGrid.SetCellSize(24, 1)
 	themeGrid.SetPadding(1)
+	themeGrid.SetSelectionMode(widgets.SingleSelect) // Explicitly set to single select mode
 	themeGrid.SetCells([][]string{
 		{"Default Theme"},
-		{"Borland Classic"},
+		{"Turbo Classic"},
 	})
 
 	// Handle theme selection
@@ -90,7 +91,7 @@ func createSidebar(app *tinytui.Application) *widgets.Pane {
 		case 0:
 			themeName = tinytui.ThemeDefault
 		case 1:
-			themeName = tinytui.ThemeBorland
+			themeName = tinytui.ThemeTurbo
 		}
 
 		// Apply selected theme
@@ -189,6 +190,7 @@ func createContentArea(app *tinytui.Application) *widgets.Pane {
 	todoGrid := widgets.NewGrid()
 	todoGrid.SetCellSize(0, 1) // Auto-width
 	todoGrid.SetPadding(1)
+	todoGrid.SetSelectionMode(widgets.MultiSelect) // Use multi-select mode for todos
 
 	// Function to update grid cells from todos
 	updateTodoGrid := func() {
@@ -244,6 +246,7 @@ func createContentArea(app *tinytui.Application) *widgets.Pane {
 	addOptionsGrid := widgets.NewGrid()
 	addOptionsGrid.SetCellSize(30, 1)
 	addOptionsGrid.SetPadding(1)
+	addOptionsGrid.SetSelectionMode(widgets.SingleSelect) // Explicitly set to single select mode
 	addOptionsGrid.SetCells([][]string{
 		{"Add: Buy groceries"},
 		{"Add: Call mom"},
