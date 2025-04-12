@@ -54,12 +54,13 @@ func (a *Application) processEvent(ev tcell.Event) {
 			}
 		}
 
-	case *tcell.EventMouse:
-		// Basic mouse handling: Pass to focused widget first.
-		// TODO: More advanced: Check widget under cursor
-		if currentFocused != nil {
-			consumed = currentFocused.HandleEvent(event)
-		}
+	// No mouse handling at this time, pass through for terminal support
+	// case *tcell.EventMouse:
+	// 	// Basic mouse handling: Pass to focused widget first.
+	// 	if currentFocused != nil {
+	// 		consumed = currentFocused.HandleEvent(event)
+	// 	}
+	// NOTE: consumed is unused, keeping for potential future use or debugging
 
 	default:
 		// Pass other unhandled event types to focused widget

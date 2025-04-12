@@ -289,8 +289,5 @@ func (b *Button) HandleEvent(event tcell.Event) bool {
 		}
 	}
 
-	// Handle mouse clicks (Phase 4 - Placeholder)
-	// ... (mouse handling code remains commented out) ...
-
 	return false // Event not handled
 }
