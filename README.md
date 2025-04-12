@@ -39,37 +39,37 @@ Here's a minimal "Hello World" application:
 package main
 
 import (
-    "github.com/LixenWraith/tinytui"
-    "github.com/LixenWraith/tinytui/widgets"
+	"github.com/LixenWraith/tinytui"
+	"github.com/LixenWraith/tinytui/widgets"
 )
 
 func main() {
-    // Create the application
-    app := tinytui.NewApplication()
-    
-    // Create a text widget
-    text := widgets.NewText("Hello, TinyTUI World!").
-        SetStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorAqua).Bold(true))
-    
-    // Create a button widget
-    button := widgets.NewButton("Quit")
-    button.SetOnClick(func() {
-        app.Stop() // Exit the application when clicked
-    })
-    
-    // Create a vertical layout to arrange widgets
-    layout := tinytui.NewFlexLayout(tinytui.Vertical).
-        SetGap(1).
-        AddChild(text, 0, 1).
-        AddChild(button, 1, 0)
-    
-    // Set the layout as the application's root widget
-    app.SetRoot(layout, true)
-    
-    // Run the application
-    if err := app.Run(); err != nil {
-        panic(err)
-    }
+	// Create the application
+	app := tinytui.NewApplication()
+
+	// Create a text widget
+	text := widgets.NewText("Hello, TinyTUI World!").
+		SetStyle(tinytui.DefaultTextStyle().Foreground(tinytui.ColorAqua).Bold(true))
+
+	// Create a button widget
+	button := widgets.NewButton("Quit")
+	button.SetOnClick(func() {
+		app.Stop() // Exit the application when clicked
+	})
+
+	// Create a vertical layout to arrange widgets
+	layout := tinytui.NewFlexLayout(tinytui.Vertical).
+		SetGap(1).
+		AddChild(text, 0, 1).
+		AddChild(button, 1, 0)
+
+	// Set the layout as the application's root widget
+	app.SetRoot(layout, true)
+
+	// Run the application
+	if err := app.Run(); err != nil {
+		panic(err)
+	}
 }
 ```
 
@@ -114,6 +114,9 @@ type Widget interface {
     SetVisible(visible bool)
     PreferredWidth() int
     PreferredHeight() int
+    SetState(state WidgetState)
+    GetState() WidgetState
+    ApplyTheme(theme Theme)
 }
 ```
 
@@ -147,6 +150,41 @@ Layout options include:
 - **Main Axis Alignment**: How items are positioned in the layout direction
 - **Cross Axis Alignment**: How items are positioned perpendicular to layout direction
 
+### Widget State Management
+
+TinyTUI widgets have a standardized state system:
+
+```go
+// WidgetState enumeration
+const (
+    StateNormal     WidgetState = iota // Normal, unselected state
+    StateSelected                      // Selected but not interacted
+    StateInteracted                    // Selected and interacted with
+)
+```
+
+State can be managed with:
+
+```go
+// Get a widget's current state
+state := myWidget.GetState()
+
+// Set a widget's state (will trigger redraw if changed)
+myWidget.SetState(tinytui.StateSelected)
+
+// Helper methods for state checking
+if myWidget.IsSelected() {
+    // Widget is either Selected or Interacted
+}
+
+if myWidget.IsInteracted() {
+    // Widget is specifically in Interacted state
+}
+
+// Reset to normal state
+myWidget.ResetState()
+```
+
 ### Event Handling
 
 Events are processed through the widget hierarchy. Focused widgets get priority:
@@ -173,8 +211,6 @@ TinyTUI includes a comprehensive theme system that provides consistent styling a
 TinyTUI comes with several built-in themes:
 
 - **Default**: Basic theme using terminal defaults
-- **Tokyo Night**: Dark theme with blue and purple accents
-- **Catppuccin Mocha**: Modern dark theme with pastel colors
 - **Borland**: Classic blue background with white text reminiscent of 1990s DOS applications
 
 ### Using Themes
@@ -185,7 +221,7 @@ app := tinytui.NewApplication()
 app.SetTheme(tinytui.ThemeBorland)
 
 // Or change the theme at runtime
-app.SetTheme(tinytui.ThemeTokyoNight)
+app.SetTheme(tinytui.ThemeDefault)
 ```
 
 ### Creating Custom Themes
@@ -212,6 +248,41 @@ func (t *CustomTheme) TextStyle() tinytui.Style {
 tinytui.RegisterTheme(&CustomTheme{})
 ```
 
+### Theme Interface
+
+The Theme interface provides methods for retrieving styles for different widget states:
+
+```go
+type Theme interface {
+    Name() ThemeName
+    
+    // Text styles
+    TextStyle() Style
+    TextSelectedStyle() Style
+    
+    // Grid styles based on state
+    GridStyle() Style
+    GridFocusedStyle() Style
+    GridSelectedStyle() Style
+    GridInteractedStyle() Style
+    GridFocusedSelectedStyle() Style
+    GridFocusedInteractedStyle() Style
+    
+    // Pane styles
+    PaneStyle() Style
+    PaneBorderStyle() Style
+    PaneFocusBorderStyle() Style
+    
+    // Default dimensions
+    DefaultCellWidth() int
+    DefaultCellHeight() int
+    
+    // Style indicators and padding
+    IndicatorColor() Color
+    DefaultPadding() int
+}
+```
+
 ### Widget Theme Integration
 
 Widgets automatically use the current theme's styles. You can also access theme styles directly:
@@ -221,8 +292,8 @@ Widgets automatically use the current theme's styles. You can also access theme 
 text := widgets.NewText("Themed Text")
 
 // Override with a custom style based on theme
-button := widgets.NewButton("Themed Button").
-    SetStyle(tinytui.DefaultButtonStyle().Bold(true))
+myGrid := widgets.NewGrid().
+    SetStyle(tinytui.GetTheme().GridStyle().Bold(true))
 ```
 
 ## Layout System
@@ -274,14 +345,16 @@ titleText := widgets.NewText("Application Title").
         Background(tinytui.ColorBlue).
         Bold(true))
 
-// Style a button
-button := widgets.NewButton("Save").
-    SetStyle(tinytui.DefaultButtonStyle().
+// Style a grid
+grid := widgets.NewGrid().
+    SetStyle(tinytui.DefaultGridStyle().
         Foreground(tinytui.ColorWhite).
-        Background(tinytui.ColorGreen)).
-    SetFocusedStyle(tinytui.DefaultButtonFocusedStyle().
-        Foreground(tinytui.ColorGreen).
+        Background(tinytui.ColorBlue)).
+    SetSelectedStyle(tinytui.DefaultGridSelectedStyle().
+        Foreground(tinytui.ColorBlue).
         Background(tinytui.ColorWhite).
+        Bold(true)).
+    SetInteractedStyle(tinytui.DefaultGridInteractedStyle().
         Bold(true))
 ```
 
@@ -301,15 +374,15 @@ confirmDialog.SetVisible(false) // Initially hidden
 
 // Show modal when needed
 app.Dispatch(func(app *tinytui.Application) {
-    confirmDialog.SetVisible(true)
-    app.SetModalRoot(confirmDialog)
-    app.SetFocus(findFirstFocusableIn(confirmDialog))
+confirmDialog.SetVisible(true)
+app.SetModalRoot(confirmDialog)
+app.SetFocus(findFirstFocusableIn(confirmDialog))
 })
 
 // Close modal
 app.Dispatch(func(app *tinytui.Application) {
-    app.ClearModalRoot()
-    confirmDialog.SetVisible(false)
+app.ClearModalRoot()
+confirmDialog.SetVisible(false)
 })
 ```
 
@@ -319,13 +392,13 @@ TinyTUI's event-driven architecture ensures thread safety. Use `Dispatch` to int
 
 ```go
 go func() {
-    // Do background work...
-    
-    // Update UI safely
-    app.Dispatch(func(app *tinytui.Application) {
-        statusText.SetContent("Task completed!")
-        app.QueueRedraw()
-    })
+// Do background work...
+
+// Update UI safely
+app.Dispatch(func(app *tinytui.Application) {
+statusText.SetContent("Task completed!")
+app.QueueRedraw()
+})
 }()
 ```
 
@@ -345,17 +418,17 @@ go func() {
 
 ```go
 type Model struct {
-    Name string
-    Email string
-    // other fields...
+Name string
+Email string
+// other fields...
 }
 
 func bindModelToForm(model *Model, nameText, emailText *widgets.Text) {
-    // Update UI from model
-    nameText.SetContent(model.Name)
-    emailText.SetContent(model.Email)
-    
-    // Update model from UI handled in event handlers
+// Update UI from model
+nameText.SetContent(model.Name)
+emailText.SetContent(model.Email)
+
+// Update model from UI handled in event handlers
 }
 ```
 
@@ -365,31 +438,31 @@ Create custom widgets by embedding `BaseWidget` and implementing `ThemedWidget`:
 
 ```go
 type ColorPicker struct {
-    tinytui.BaseWidget
-    colors []tinytui.Color
-    selected int
-    onChange func(tinytui.Color)
-    style tinytui.Style
+tinytui.BaseWidget
+colors []tinytui.Color
+selected int
+onChange func(tinytui.Color)
+style tinytui.Style
 }
 
 func NewColorPicker(colors []tinytui.Color) *ColorPicker {
-    cp := &ColorPicker{
-        colors: colors,
-        selected: 0,
-        style: tinytui.DefaultStyle,
-    }
-    cp.SetVisible(true)
-    return cp
+cp := &ColorPicker{
+colors: colors,
+selected: 0,
+style: tinytui.DefaultStyle,
+}
+cp.SetVisible(true)
+return cp
 }
 
 // Implement required methods: Draw, HandleEvent, etc.
 
 // Implement ApplyTheme for theme support
 func (cp *ColorPicker) ApplyTheme(theme tinytui.Theme) {
-    cp.style = theme.TextStyle()
-    if app := cp.App(); app != nil {
-        app.QueueRedraw()
-    }
+cp.style = theme.TextStyle()
+if app := cp.App(); app != nil {
+app.QueueRedraw()
+}
 }
 ```
 
