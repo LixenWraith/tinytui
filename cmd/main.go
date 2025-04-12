@@ -3,362 +3,363 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/LixenWraith/tinytui"
 	"github.com/LixenWraith/tinytui/widgets"
 	"github.com/gdamore/tcell/v2"
 )
 
+type TodoItem struct {
+	Text      string
+	Completed bool
+}
+
 func main() {
-	// Create and initialize the application
+	// Create application
 	app := tinytui.NewApplication()
 	if app == nil {
-		fmt.Println("Could not create application")
+		fmt.Println("Error: Could not create application")
 		os.Exit(1)
 	}
 
-	// Create the main layout (horizontal)
+	// Create main layout with two columns
 	mainLayout := tinytui.NewFlexLayout(tinytui.Horizontal)
 
-	// Create sidebar for theme selection
-	sidebarWidth := 25
-	sidebar := createSidebar(app, sidebarWidth)
+	// Create sidebar for theme and controls
+	sidebar := createSidebar(app)
 
-	// Create content area
-	contentArea := createContentArea()
+	// Create content area with todo list example
+	contentArea := createContentArea(app)
 
-	// Add sidebar and content to main layout
-	mainLayout.AddChild(sidebar, sidebarWidth, 0)
-	mainLayout.AddChild(contentArea, 0, 1)
+	// Add components to main layout
+	mainLayout.AddChild(sidebar, 28, 0)    // Fixed width sidebar
+	mainLayout.AddChild(contentArea, 0, 1) // Content takes remaining space
 
-	// Set the root of the application
+	// Set application root
 	app.SetRoot(mainLayout, true)
 
-	// Set keybinding to quit the application
+	// Global key binding to quit with Escape
 	mainLayout.SetKeybinding(tcell.KeyEscape, tcell.ModNone, func() bool {
 		app.Stop()
 		return true
 	})
 
-	// Show instructions
-	statusText := widgets.NewText("ESC to quit | TAB to navigate | ENTER to select")
-	statusText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
-
-	// Add a status bar at the bottom
-	mainLayout.SetKeybinding(tcell.KeyF1, tcell.ModNone, func() bool {
-		// Toggle theme details panel
-		return true
-	})
-
-	// Start the application loop
+	// Run application
 	if err := app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running application: %s\n", err)
 		os.Exit(1)
 	}
 }
 
-// createSidebar creates the left sidebar with theme selection
-func createSidebar(app *tinytui.Application, width int) *widgets.Pane {
-	// Create a pane with a border
+// createSidebar creates the left sidebar with theme selection and controls
+func createSidebar(app *tinytui.Application) *widgets.Pane {
+	// Create sidebar pane with border
 	sidebarPane := widgets.NewPane()
 	sidebarPane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
 
-	// Create a vertical layout for the sidebar content
+	// Create vertical layout for sidebar content
 	sidebarLayout := tinytui.NewFlexLayout(tinytui.Vertical)
 	sidebarLayout.SetGap(1)
 
-	// Create a title text widget
-	titleText := widgets.NewText("Theme Selector")
+	// Add title
+	titleText := widgets.NewText("TinyTUI Demo")
 	titleText.SetStyle(tinytui.DefaultTextStyle().Bold(true))
 
-	// Create a list of themes
-	themeList := widgets.NewList()
-	themeList.SetItems([]string{
-		"Default Theme",
-		"Borland",
+	// Add clock display that updates
+	clockText := widgets.NewText(time.Now().Format("15:04:05"))
+
+	// Create theme selector section with header
+	themeHeader := widgets.NewText("Theme Selection")
+	themeHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	// Theme selector grid
+	themeGrid := widgets.NewGrid()
+	themeGrid.SetCellSize(24, 1)
+	themeGrid.SetPadding(1)
+	themeGrid.SetCells([][]string{
+		{"Default Theme"},
+		{"Borland Classic"},
 	})
 
-	// Set a callback for when a theme is selected
-	themeList.SetOnSelect(func(index int, item string) {
+	// Handle theme selection
+	themeGrid.SetOnSelect(func(row, col int, item string) {
 		var themeName tinytui.ThemeName
-
-		switch index {
+		switch row {
 		case 0:
 			themeName = tinytui.ThemeDefault
 		case 1:
 			themeName = tinytui.ThemeBorland
-		default:
-			return
 		}
 
-		// Apply the selected theme
-		success := app.SetTheme(themeName)
-
-		// Add a visual confirmation that theme was changed
-		titleText.SetContent(fmt.Sprintf("Theme Selector [%s %s]",
-			item,
-			map[bool]string{true: "✓", false: "✗"}[success]))
-
-		// Force a redraw
-		app.QueueRedraw()
+		// Apply selected theme
+		if app.SetTheme(themeName) {
+			clockText.SetContent(fmt.Sprintf("%s - Theme Changed", time.Now().Format("15:04:05")))
+		}
 	})
 
-	// Also set an onChange handler to highlight the selection
-	themeList.SetOnChange(func(index int, item string) {
-		// Update the sidebar title to show which theme is being considered
-		titleText.SetContent(fmt.Sprintf("Theme Selector [%s]", item))
+	// Create help section
+	helpHeader := widgets.NewText("Keyboard Controls")
+	helpHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	helpItems := []string{
+		"Tab: Move focus",
+		"Arrow Keys: Navigate",
+		"Space: Interact",
+		"Enter: Toggle interaction",
+		"Backspace: Cancel interaction",
+		"Escape: Quit application",
+	}
+
+	// Create button-like grid for refreshing
+	refreshGrid := widgets.NewGrid()
+	refreshGrid.SetCellSize(24, 1)
+	refreshGrid.SetPadding(1)
+	refreshGrid.SetCells([][]string{{"Refresh Time"}})
+
+	// Handle refresh button
+	refreshGrid.SetOnSelect(func(row, col int, item string) {
+		clockText.SetContent(time.Now().Format("15:04:05"))
 	})
 
-	// Add widgets to the sidebar layout
+	// Add all components to layout
 	sidebarLayout.AddChild(titleText, 2, 0)
-	// sidebarLayout.AddChild(themeList, 0, 1)
+	sidebarLayout.AddChild(clockText, 2, 0)
+	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
 
-	// Add instructions text at the bottom
-	instructionsText := widgets.NewText("Press Enter to select theme")
-	instructionsText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
-	sidebarLayout.AddChild(instructionsText, 1, 0)
+	sidebarLayout.AddChild(themeHeader, 1, 0)
+	sidebarLayout.AddChild(themeGrid, 4, 0)
+	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
 
-	// Set the layout as the pane's child
+	sidebarLayout.AddChild(helpHeader, 1, 0)
+	for _, item := range helpItems {
+		helpText := widgets.NewText(item)
+		sidebarLayout.AddChild(helpText, 1, 0)
+	}
+
+	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+	sidebarLayout.AddChild(refreshGrid, 3, 0)
+
+	// Add footer with version
+	footer := widgets.NewText("TinyTUI v1.0.0")
+	footer.SetStyle(tinytui.DefaultTextStyle().Italic(true))
+	sidebarLayout.AddChild(footer, 0, 1) // Take remaining space
+
+	// Set the layout as pane's child
 	sidebarPane.SetChild(sidebarLayout)
 
 	return sidebarPane
 }
 
-// createContentArea creates the main content area with multiple widget examples
-func createContentArea() *widgets.Pane {
-	// Create main content pane
+// createContentArea creates the main content area with a todo list
+func createContentArea(app *tinytui.Application) *widgets.Pane {
+	// Create main content pane with border
 	contentPane := widgets.NewPane()
 	contentPane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
 
 	// Create layout for content
 	contentLayout := tinytui.NewFlexLayout(tinytui.Vertical)
-	contentLayout.SetGap(1) // Add space between elements
+	contentLayout.SetGap(1)
 
-	// Create title for the content area
-	titleText := widgets.NewText("Theme Demonstration")
+	// Add title
+	titleText := widgets.NewText("Todo List Example")
 	titleText.SetStyle(tinytui.DefaultTextStyle().Bold(true))
 
-	// Grid demonstration pane
-	gridPane := createGridDemo()
+	// Create a description
+	descText := widgets.NewText("Use Space to toggle item completion. Enter to edit status.")
+	descText.SetWrap(true)
 
-	// Text demonstration pane
-	textPane := createTextDemo()
+	// Status text for showing actions
+	statusText := widgets.NewText("Ready")
+	statusText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
 
-	// Button demonstration pane
-	buttonPane := createButtonDemo()
+	// Initial todo items
+	todos := []TodoItem{
+		{Text: "Learn TinyTUI basics", Completed: true},
+		{Text: "Create a todo list app", Completed: false},
+		{Text: "Implement theme switching", Completed: false},
+		{Text: "Add keyboard navigation", Completed: false},
+		{Text: "Test on different terminals", Completed: false},
+		{Text: "Document the code", Completed: false},
+		{Text: "Share with others", Completed: false},
+	}
 
-	// Add all components to the layout with proper spacing
-	// Ensure fixed heights have adequate space for content including borders
-	contentLayout.AddChild(titleText, 2, 0)
-	contentLayout.AddChild(gridPane, 10, 0)
+	// Create grid for todo list
+	todoGrid := widgets.NewGrid()
+	todoGrid.SetCellSize(0, 1) // Auto-width
+	todoGrid.SetPadding(1)
 
-	// Give text pane a reasonable fixed height instead of proportional sizing
-	// This prevents it from being squeezed too small
-	contentLayout.AddChild(textPane, 12, 0)
+	// Function to update grid cells from todos
+	updateTodoGrid := func() {
+		cells := make([][]string, len(todos))
+		for i, todo := range todos {
+			status := "[ ]"
+			if todo.Completed {
+				status = "[✓]"
+			}
+			cells[i] = []string{fmt.Sprintf("%s %s", status, todo.Text)}
+		}
+		todoGrid.SetCells(cells)
+	}
 
-	// Ensure button pane has enough height for its content
-	contentLayout.AddChild(buttonPane, 10, 0)
+	// Initial grid update
+	updateTodoGrid()
 
-	// Set the content layout as the child of the content pane
+	// Set interactions for todo grid
+	todoGrid.SetOnSelect(func(row, col int, item string) {
+		// Toggle completion status
+		if row >= 0 && row < len(todos) {
+			todos[row].Completed = !todos[row].Completed
+			updateTodoGrid()
+
+			item := todos[row]
+			status := "incomplete"
+			if item.Completed {
+				status = "complete"
+			}
+			statusText.SetContent(fmt.Sprintf("Marked '%s' as %s", item.Text, status))
+		}
+	})
+
+	todoGrid.SetOnChange(func(row, col int, item string) {
+		if row >= 0 && row < len(todos) {
+			todo := todos[row]
+			status := "incomplete"
+			if todo.Completed {
+				status = "complete"
+			}
+			statusText.SetContent(fmt.Sprintf("Selected: '%s' (%s)", todo.Text, status))
+		}
+	})
+
+	// Create a section for adding new todos
+	addTodoHeader := widgets.NewText("Add New Todo")
+	addTodoHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	// Text explaining how to add (since we don't have real input)
+	addTodoText := widgets.NewText("Select an action to simulate adding a todo")
+
+	// Grid with add options
+	addOptionsGrid := widgets.NewGrid()
+	addOptionsGrid.SetCellSize(30, 1)
+	addOptionsGrid.SetPadding(1)
+	addOptionsGrid.SetCells([][]string{
+		{"Add: Buy groceries"},
+		{"Add: Call mom"},
+		{"Add: Fix the bug"},
+		{"Add: Clean up code"},
+	})
+
+	// Handle adding new todos
+	addOptionsGrid.SetOnSelect(func(row, col int, item string) {
+		// Extract todo text from the selection
+		text := strings.TrimPrefix(item, "Add: ")
+
+		// Add the new todo
+		todos = append(todos, TodoItem{Text: text, Completed: false})
+		updateTodoGrid()
+
+		statusText.SetContent(fmt.Sprintf("Added new todo: '%s'", text))
+	})
+
+	// Create a section for data summary
+	statsHeader := widgets.NewText("Summary")
+	statsHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	// Create grid for statistics
+	statsGrid := widgets.NewGrid()
+	statsGrid.SetCellSize(20, 1)
+	statsGrid.SetPadding(1)
+
+	// Function to update statistics
+	updateStats := func() {
+		total := len(todos)
+		completed := 0
+		for _, todo := range todos {
+			if todo.Completed {
+				completed++
+			}
+		}
+		remaining := total - completed
+
+		statsGrid.SetCells([][]string{
+			{fmt.Sprintf("Total Tasks: %d", total)},
+			{fmt.Sprintf("Completed: %d", completed)},
+			{fmt.Sprintf("Remaining: %d", remaining)},
+			{fmt.Sprintf("Progress: %d%%", (completed*100)/max(total, 1))},
+		})
+	}
+
+	// Initial stats update
+	updateStats()
+
+	// Add interaction to refresh stats
+	statsGrid.SetOnSelect(func(row, col int, item string) {
+		updateStats()
+		statusText.SetContent("Statistics updated")
+	})
+
+	// Add clear completed button
+	clearGrid := widgets.NewGrid()
+	clearGrid.SetCellSize(30, 1)
+	clearGrid.SetPadding(1)
+	clearGrid.SetCells([][]string{{"Clear Completed Tasks"}})
+
+	clearGrid.SetOnSelect(func(row, col int, item string) {
+		// Filter out completed tasks
+		newTodos := []TodoItem{}
+		removedCount := 0
+
+		for _, todo := range todos {
+			if !todo.Completed {
+				newTodos = append(newTodos, todo)
+			} else {
+				removedCount++
+			}
+		}
+
+		todos = newTodos
+		updateTodoGrid()
+		updateStats()
+
+		statusText.SetContent(fmt.Sprintf("Removed %d completed tasks", removedCount))
+	})
+
+	// Add all components to layout
+	contentLayout.AddChild(titleText, 1, 0)
+	contentLayout.AddChild(descText, 2, 0)
+	contentLayout.AddChild(todoGrid, 10, 0)
+
+	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+
+	// Add new todo section
+	contentLayout.AddChild(addTodoHeader, 1, 0)
+	contentLayout.AddChild(addTodoText, 1, 0)
+	contentLayout.AddChild(addOptionsGrid, 6, 0)
+
+	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+
+	// Stats section
+	contentLayout.AddChild(statsHeader, 1, 0)
+	contentLayout.AddChild(statsGrid, 6, 0)
+	contentLayout.AddChild(clearGrid, 3, 0)
+
+	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+
+	// Status bar at bottom
+	contentLayout.AddChild(statusText, 0, 1) // Fill remaining space
+
+	// Set the layout as pane's child
 	contentPane.SetChild(contentLayout)
 
 	return contentPane
 }
 
-// createGridDemo creates a pane with a grid widget
-func createGridDemo() *widgets.Pane {
-	pane := widgets.NewPane()
-	pane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
-
-	// Create a vertical layout
-	layout := tinytui.NewFlexLayout(tinytui.Vertical)
-	layout.SetGap(1)
-
-	// Create a title
-	title := widgets.NewText("Grid Widget Example")
-	title.SetStyle(tinytui.DefaultTextStyle().Bold(true))
-
-	// Create a grid
-	grid := widgets.NewGrid()
-	grid.SetCellSize(10, 1) // Set cell size a bit larger for better readability
-	grid.SetPadding(1)      // Add padding for better visibility
-
-	// Create sample data
-	data := [][]string{
-		{"Column 1", "Column 2", "Column 3", "Column 4"},
-		{"Data 1,1", "Data 1,2", "Data 1,3", "Data 1,4"},
-		{"Data 2,1", "Data 2,2", "Data 2,3", "Data 2,4"},
-		{"Data 3,1", "Data 3,2", "Data 3,3", "Data 3,4"},
+// max returns the larger of x or y
+func max(x, y int) int {
+	if x > y {
+		return x
 	}
-	grid.SetCells(data)
-
-	// Add interactivity to the grid
-	grid.SetOnSelect(func(row, col int, item string) {
-		title.SetContent(fmt.Sprintf("Grid Widget Example - Selected: [%d,%d] %s - Now in interacted state",
-			row, col, item))
-	})
-
-	// Also update on navigation
-	grid.SetOnChange(func(row, col int, item string) {
-		title.SetContent(fmt.Sprintf("Grid Widget Example - Focus: [%d,%d] - State persists across widgets",
-			row, col))
-	})
-
-	stateDesc := widgets.NewText("Selection state persists when focus moves to other widgets")
-	layout.AddChild(stateDesc, 1, 0)
-
-	// Add widgets to layout
-	layout.AddChild(title, 1, 0)
-	layout.AddChild(grid, 0, 1)
-
-	// Set layout as pane's child
-	pane.SetChild(layout)
-
-	return pane
-}
-
-// createTextDemo creates a pane with text widgets
-func createTextDemo() *widgets.Pane {
-	pane := widgets.NewPane()
-	pane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
-
-	// Create a vertical layout
-	layout := tinytui.NewFlexLayout(tinytui.Vertical)
-	layout.SetGap(1)
-
-	// Create a title
-	title := widgets.NewText("Text Widget Examples")
-	title.SetStyle(tinytui.DefaultTextStyle().Bold(true))
-
-	// Create different text widgets with reasonable, fixed heights
-	text1 := widgets.NewText("Regular text - The theme affects the default appearance.")
-
-	text2 := widgets.NewText("Long wrapped text example. This text should wrap to multiple lines depending on the container width. The theme's text style will be applied to this widget.")
-	text2.SetWrap(true)
-
-	text3 := widgets.NewText("Custom styled text - this has custom styling.")
-	text3.SetStyle(tinytui.DefaultTextStyle().Bold(true).Italic(true))
-
-	// Create a list with proper styling
-	list := widgets.NewList()
-	list.SetItems([]string{
-		"List Item 1",
-		"List Item 2",
-		"List Item 3",
-		"List Item 4",
-	})
-
-	// State persistence
-	stateText := widgets.NewText("Selection state persists when focus changes between widgets")
-	stateText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
-
-	// Add interactivity to the list
-	list.SetOnSelect(func(index int, item string) {
-		// When an item is selected, update the text3 widget to show it
-		text3.SetContent(fmt.Sprintf("Selected list item: %s", item))
-		text3.SetStyle(tinytui.DefaultTextStyle().Bold(true).Italic(true))
-	})
-
-	// Also show focus changes
-	list.SetOnChange(func(index int, item string) {
-		text2.SetContent(fmt.Sprintf("List focus on: %s - Selected state is maintained when focus moves to other widgets", item))
-		text2.SetWrap(true)
-	})
-
-	// Add widgets to layout with fixed heights to ensure proper space allocation
-	layout.AddChild(title, 1, 0) // Fixed 1 line for title
-	layout.AddChild(text1, 1, 0) // Fixed 1 line for regular text
-	layout.AddChild(text2, 2, 0) // Fixed 2 lines for wrapped text
-	layout.AddChild(text3, 1, 0) // Fixed 1 line for custom text
-
-	// Give the list a fixed height of at least 4 rows to show all items
-	// This ensures the list is always visible
-	// layout.AddChild(list, 5, 0) // Fixed 5 lines for list (including some margin)
-
-	layout.AddChild(stateText, 1, 0)
-
-	// Set layout as pane's child
-	pane.SetChild(layout)
-
-	return pane
-}
-
-// createButtonDemo creates a pane with buttons
-func createButtonDemo() *widgets.Pane {
-	pane := widgets.NewPane()
-	pane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
-
-	// Create a vertical layout
-	layout := tinytui.NewFlexLayout(tinytui.Vertical)
-	layout.SetGap(1)
-	// Use AlignStart instead of AlignCenter to avoid pushing buttons to the border
-	layout.SetMainAxisAlignment(tinytui.AlignStart)
-
-	// Create a title
-	title := widgets.NewText("Button Examples")
-	title.SetStyle(tinytui.DefaultTextStyle().Bold(true))
-
-	// Create a horizontal layout for buttons with proper alignment
-	buttonLayout := tinytui.NewFlexLayout(tinytui.Horizontal)
-	buttonLayout.SetGap(3)                                  // Space between buttons
-	buttonLayout.SetMainAxisAlignment(tinytui.AlignCenter)  // Center buttons horizontally
-	buttonLayout.SetCrossAxisAlignment(tinytui.AlignCenter) // Center buttons vertically
-
-	// Create buttons with indicators
-	button1 := widgets.NewButton("OK")
-	button1.SetIndicator('>', widgets.IndicatorLeft) // Show indicator on left
-
-	button2 := widgets.NewButton("Cancel")
-	button2.SetIndicator('>', widgets.IndicatorLeft)
-
-	button3 := widgets.NewButton("Help")
-	button3.SetIndicator('>', widgets.IndicatorLeft)
-
-	// Demo action and state changes
-	button1.SetOnClick(func() {
-		button1.SetLabel("Clicked!")
-		// State is now StateInteracted from HandleEvent
-	})
-
-	button2.SetOnClick(func() {
-		button2.SetLabel("Canceled")
-		// State is now StateInteracted, no need to reset it manually
-	})
-
-	button3.SetOnClick(func() {
-		button3.SetLabel("Helping!")
-		// State is now StateInteracted from HandleEvent
-	})
-
-	// Add description text explaining state management
-	stateDesc := widgets.NewText("Tab to another widget - selection state is preserved")
-
-	// Add widgets to layout with proper spacing
-	layout.AddChild(title, 1, 0)
-	layout.AddChild(stateDesc, 1, 0)
-
-	// Add a fixed height (1) empty text for spacing
-	spacer1 := widgets.NewText("")
-	layout.AddChild(spacer1, 1, 0)
-
-	// Add buttons to horizontal layout with FIXED WIDTH to ensure visibility
-	// Increase widths to ensure buttons are properly visible
-	buttonLayout.AddChild(button1, 10, 0) // Increased from 8 to 10
-	buttonLayout.AddChild(button2, 12, 0) // Increased from 10 to 12
-	buttonLayout.AddChild(button3, 10, 0) // Increased from 8 to 10
-
-	// Increase button layout height for better visibility
-	layout.AddChild(buttonLayout, 3, 0) // Fixed height 3
-
-	// Add description text with proper spacing
-	spacer2 := widgets.NewText("")
-	layout.AddChild(spacer2, 1, 0)
-
-	descText := widgets.NewText("Tab between buttons to see focus styles change")
-	layout.AddChild(descText, 1, 0)
-
-	// Set layout as pane's child
-	pane.SetChild(layout)
-
-	return pane
+	return y
 }

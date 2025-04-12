@@ -28,22 +28,6 @@ type Theme interface {
 	TextStyle() Style
 	TextSelectedStyle() Style
 
-	// Button styles based on state
-	ButtonStyle() Style                  // Base style (equivalent to ButtonNormalStyle)
-	ButtonFocusedStyle() Style           // Base focused style
-	ButtonSelectedStyle() Style          // Selected, not focused
-	ButtonInteractedStyle() Style        // Interacted, not focused
-	ButtonFocusedSelectedStyle() Style   // Selected and focused
-	ButtonFocusedInteractedStyle() Style // Interacted and focused
-
-	// List styles based on state
-	ListStyle() Style                  // Base style (equivalent to ListNormalStyle)
-	ListFocusedStyle() Style           // Base focused style
-	ListSelectedStyle() Style          // Selected, not focused
-	ListInteractedStyle() Style        // Interacted, not focused
-	ListFocusedSelectedStyle() Style   // Selected and focused
-	ListFocusedInteractedStyle() Style // Interacted and focused
-
 	// Grid styles based on state
 	GridStyle() Style                  // Base style (equivalent to GridNormalStyle)
 	GridFocusedStyle() Style           // Base focused style
@@ -53,18 +37,15 @@ type Theme interface {
 	GridFocusedInteractedStyle() Style // Interacted and focused
 
 	// Pane styles
-	PaneStyle() Style
-	PaneBorderStyle() Style
-	PaneFocusBorderStyle() Style
-
-	// Default border type for panes
-	DefaultBorderType() BorderType
+	PaneStyle() Style            // Style for pane content area
+	PaneBorderStyle() Style      // Style for pane border (unfocused)
+	PaneFocusBorderStyle() Style // Style for pane border when a child has focus
 
 	// Default cell dimensions for grid
 	DefaultCellWidth() int
 	DefaultCellHeight() int
 
-	// New methods for the added functionality
+	// Indicator and padding
 	IndicatorColor() Color // Color for selection indicators
 	DefaultPadding() int   // Default padding for widgets
 }
@@ -176,42 +157,6 @@ func DefaultTextSelectedStyle() Style {
 	return DefaultStyle.Reverse(true)
 }
 
-// DefaultButtonStyle returns the current theme's button style
-func DefaultButtonStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.ButtonStyle()
-	}
-	return DefaultStyle
-}
-
-// DefaultButtonFocusedStyle returns the current theme's focused button style
-func DefaultButtonFocusedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.ButtonFocusedStyle()
-	}
-	return DefaultStyle.Reverse(true)
-}
-
-// DefaultListStyle returns the current theme's list style
-func DefaultListStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.ListStyle()
-	}
-	return DefaultStyle
-}
-
-// DefaultListSelectedStyle returns the current theme's selected list item style
-func DefaultListSelectedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.ListSelectedStyle()
-	}
-	return DefaultStyle.Reverse(true)
-}
-
 // DefaultGridStyle returns the current theme's grid style
 func DefaultGridStyle() Style {
 	theme := GetTheme()
@@ -257,15 +202,6 @@ func DefaultPaneFocusBorderStyle() Style {
 	return DefaultStyle.Foreground(ColorYellow).Bold(true)
 }
 
-// DefaultBorderType returns the current theme's default border type
-func DefaultBorderType() BorderType {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.DefaultBorderType()
-	}
-	return BorderSingle
-}
-
 // DefaultCellWidth returns the current theme's default cell width
 func DefaultCellWidth() int {
 	theme := GetTheme()
@@ -284,41 +220,25 @@ func DefaultCellHeight() int {
 	return 1 // Default value
 }
 
-// Convenience methods to get the appropriate style for a widget based on its type, state, and focus
-func GetButtonStyle(theme Theme, state WidgetState, focused bool) Style {
-	switch {
-	case focused && state == StateInteracted:
-		return theme.ButtonFocusedInteractedStyle()
-	case focused && state == StateSelected:
-		return theme.ButtonFocusedSelectedStyle()
-	case focused:
-		return theme.ButtonFocusedStyle()
-	case state == StateInteracted:
-		return theme.ButtonInteractedStyle()
-	case state == StateSelected:
-		return theme.ButtonSelectedStyle()
-	default:
-		return theme.ButtonStyle()
+// DefaultPadding returns the current theme's default padding
+func DefaultPadding() int {
+	theme := GetTheme()
+	if theme != nil {
+		return theme.DefaultPadding()
 	}
+	return 0 // Default value
 }
 
-func GetListStyle(theme Theme, state WidgetState, focused bool) Style {
-	switch {
-	case focused && state == StateInteracted:
-		return theme.ListFocusedInteractedStyle()
-	case focused && state == StateSelected:
-		return theme.ListFocusedSelectedStyle()
-	case focused:
-		return theme.ListFocusedStyle()
-	case state == StateInteracted:
-		return theme.ListInteractedStyle()
-	case state == StateSelected:
-		return theme.ListSelectedStyle()
-	default:
-		return theme.ListStyle()
+// DefaultIndicatorColor returns the current theme's indicator color
+func DefaultIndicatorColor() Color {
+	theme := GetTheme()
+	if theme != nil {
+		return theme.IndicatorColor()
 	}
+	return ColorRed // Default value
 }
 
+// GetGridStyle returns the appropriate style for a grid widget based on its state and focus
 func GetGridStyle(theme Theme, state WidgetState, focused bool) Style {
 	switch {
 	case focused && state == StateInteracted:

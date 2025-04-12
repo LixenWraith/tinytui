@@ -8,22 +8,6 @@ type BaseTheme struct {
 	textStyle         Style
 	textSelectedStyle Style
 
-	// Button styles
-	buttonStyle                  Style
-	buttonSelectedStyle          Style
-	buttonInteractedStyle        Style
-	buttonFocusedStyle           Style
-	buttonFocusedSelectedStyle   Style
-	buttonFocusedInteractedStyle Style
-
-	// List styles
-	listStyle                  Style
-	listSelectedStyle          Style
-	listInteractedStyle        Style
-	listFocusedStyle           Style
-	listFocusedSelectedStyle   Style
-	listFocusedInteractedStyle Style
-
 	// Grid styles
 	gridStyle                  Style
 	gridSelectedStyle          Style
@@ -58,56 +42,6 @@ func (t *BaseTheme) TextStyle() Style {
 
 func (t *BaseTheme) TextSelectedStyle() Style {
 	return t.textSelectedStyle
-}
-
-// Button style methods
-func (t *BaseTheme) ButtonStyle() Style {
-	return t.buttonStyle
-}
-
-func (t *BaseTheme) ButtonSelectedStyle() Style {
-	return t.buttonSelectedStyle
-}
-
-func (t *BaseTheme) ButtonInteractedStyle() Style {
-	return t.buttonInteractedStyle
-}
-
-func (t *BaseTheme) ButtonFocusedStyle() Style {
-	return t.buttonFocusedStyle
-}
-
-func (t *BaseTheme) ButtonFocusedSelectedStyle() Style {
-	return t.buttonFocusedSelectedStyle
-}
-
-func (t *BaseTheme) ButtonFocusedInteractedStyle() Style {
-	return t.buttonFocusedInteractedStyle
-}
-
-// List style methods
-func (t *BaseTheme) ListStyle() Style {
-	return t.listStyle
-}
-
-func (t *BaseTheme) ListSelectedStyle() Style {
-	return t.listSelectedStyle
-}
-
-func (t *BaseTheme) ListInteractedStyle() Style {
-	return t.listInteractedStyle
-}
-
-func (t *BaseTheme) ListFocusedStyle() Style {
-	return t.listFocusedStyle
-}
-
-func (t *BaseTheme) ListFocusedSelectedStyle() Style {
-	return t.listFocusedSelectedStyle
-}
-
-func (t *BaseTheme) ListFocusedInteractedStyle() Style {
-	return t.listFocusedInteractedStyle
 }
 
 // Grid style methods
@@ -148,11 +82,6 @@ func (t *BaseTheme) PaneBorderStyle() Style {
 // PaneFocusBorderStyle returns the style for focused pane borders
 func (t *BaseTheme) PaneFocusBorderStyle() Style {
 	return t.paneFocusBorderStyle
-}
-
-// DefaultBorderType returns the default border type for panes
-func (t *BaseTheme) DefaultBorderType() BorderType {
-	return t.defaultBorderType
 }
 
 // DefaultCellWidth returns the default width for grid cells

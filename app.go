@@ -2,6 +2,8 @@
 package tinytui
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gdamore/tcell/v2"
@@ -352,39 +354,25 @@ func (a *Application) invalidateFocusCache() {
 	a.cacheValid = false
 }
 
-// findFocusableWidgetsCached performs a DFS to find all visible and focusable widgets,
-// using a cache for improved performance with large widget trees.
-func (a *Application) findFocusableWidgetsCached(searchRoot Widget) []Widget {
-	if searchRoot == nil {
-		return nil
-	}
-
-	// Check cache first
-	if a.cacheValid {
-		if widgets, ok := a.focusableCache[searchRoot]; ok {
-			return widgets
-		}
-	}
-
-	// Not in cache, rebuild list
-	focusableWidgets := make([]Widget, 0)
-	a.findFocusableWidgets(searchRoot, &focusableWidgets)
-
-	// Cache the result for future use
-	a.focusableCache[searchRoot] = focusableWidgets
-	a.cacheValid = true
-
-	return focusableWidgets
-}
-
 // findFocusableWidgets performs a DFS to find all *visible* and *focusable* widgets
-// starting from the given node.
+// starting from the given node. Panes are never included in this list.
 func (a *Application) findFocusableWidgets(startNode Widget, focusable *[]Widget) {
 	if startNode == nil || !startNode.IsVisible() { // Check visibility first
 		return // Don't traverse invisible widgets or their children
 	}
 
-	// Check focusable *after* visibility
+	// Check if it's a Pane - we never include Panes in the focusable list
+	if isPaneType(startNode) {
+		// Don't add pane to focusable list but still check its children
+		if children := startNode.Children(); children != nil {
+			for _, child := range children {
+				a.findFocusableWidgets(child, focusable)
+			}
+		}
+		return
+	}
+
+	// Check focusable *after* visibility for non-pane widgets
 	if startNode.Focusable() {
 		*focusable = append(*focusable, startNode)
 	}
@@ -397,14 +385,45 @@ func (a *Application) findFocusableWidgets(startNode Widget, focusable *[]Widget
 	}
 }
 
+// isPaneType determines if a widget is a Pane without causing import cycles
+// Instead of direct type assertion, name reflection is used to avoid cyclic dependency
+func isPaneType(w Widget) bool {
+	if w == nil {
+		return false
+	}
+
+	// Get the type name as a string and check if it contains "Pane"
+	// This avoids direct import of the widgets package
+	typeName := fmt.Sprintf("%T", w)
+	return strings.Contains(typeName, "Pane")
+}
+
 // findFirstFocusable finds the first *visible* and *focusable* widget in a DFS traversal.
+// Panes are skipped in this process, but we still check their children.
 func (a *Application) findFirstFocusable(start Widget) Widget {
 	if start == nil || !start.IsVisible() {
 		return nil
 	}
+
+	// Skip panes but check their children
+	if isPaneType(start) {
+		if children := start.Children(); children != nil {
+			for _, child := range children {
+				found := a.findFirstFocusable(child)
+				if found != nil {
+					return found
+				}
+			}
+		}
+		return nil
+	}
+
+	// For non-pane widgets, check if they're focusable
 	if start.Focusable() { // Focusable check implies visible here
 		return start
 	}
+
+	// Check children
 	if children := start.Children(); children != nil {
 		for _, child := range children {
 			found := a.findFirstFocusable(child)
@@ -417,16 +436,15 @@ func (a *Application) findFirstFocusable(start Widget) Widget {
 }
 
 // findNextFocus finds the next (or previous) focusable widget within the scope of searchRoot.
-// This version uses the cache for better performance.
+// This version collects focusable widgets directly without using the cache.
 func (a *Application) findNextFocus(currentFocused Widget, searchRoot Widget, forward bool) Widget {
 	if searchRoot == nil {
 		return nil
 	}
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	focusableWidgets := a.findFocusableWidgetsCached(searchRoot)
+	// Collect all focusable widgets without using cache
+	focusableWidgets := make([]Widget, 0)
+	a.findFocusableWidgets(searchRoot, &focusableWidgets)
 
 	if len(focusableWidgets) == 0 {
 		return nil

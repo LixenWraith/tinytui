@@ -30,10 +30,9 @@ type Pane struct {
 // NewPane creates a new Pane widget.
 func NewPane() *Pane {
 	p := &Pane{
-		style:      tinytui.DefaultPaneStyle(),
-		border:     false,
-		borderType: tinytui.DefaultBorderType(),
-		// Use theme border style
+		style:       tinytui.DefaultPaneStyle(),
+		border:      false,
+		borderType:  tinytui.BorderSingle, // Default to single border type
 		borderStyle: tinytui.DefaultPaneBorderStyle(),
 	}
 	// Set a default focus border style from theme
@@ -65,13 +64,31 @@ func (p *Pane) SetStyle(style tinytui.Style) *Pane {
 }
 
 // ApplyTheme applies the provided theme to the Pane widget
+// while preserving the current border type
 func (p *Pane) ApplyTheme(theme tinytui.Theme) {
-	p.SetStyle(theme.PaneStyle())
-	hasBorder := p.HasBorder()
+	p.mu.Lock()
+
+	// Apply content style
+	p.style = theme.PaneStyle()
+
+	// Get current border settings
+	hasBorder := p.border
+
 	if hasBorder {
-		p.SetBorder(true, theme.DefaultBorderType(), theme.PaneBorderStyle())
+		// Update only the styles, preserve the current border type
+		p.borderStyle = theme.PaneBorderStyle()
+		p.originalBorderStyle = theme.PaneBorderStyle()
 	}
-	p.SetFocusBorderStyle(theme.PaneFocusBorderStyle())
+
+	// Update focus border style
+	p.focusBorderStyle = theme.PaneFocusBorderStyle()
+
+	p.mu.Unlock()
+
+	// Queue redraw to apply changes
+	if app := p.App(); app != nil {
+		app.QueueRedraw()
+	}
 }
 
 // SetBorder configures the pane's border.
@@ -123,7 +140,7 @@ func (p *Pane) SetFocusBorderStyle(style tinytui.Style) *Pane {
 }
 
 // Draw draws the pane, including its border, background, and child widget.
-// Updated to use the correct border type based on focus state
+// Updated to handle focus visuals based on child focus state
 func (p *Pane) Draw(screen tcell.Screen) {
 	p.BaseWidget.Draw(screen)
 
@@ -137,28 +154,29 @@ func (p *Pane) Draw(screen tcell.Screen) {
 	borderEnabled := p.border
 	bType := p.borderType
 	contentStyle := p.style
-	childWidget := p.child     // Read child under lock
-	isFocused := p.IsFocused() // Read focus state under lock
+	childWidget := p.child // Read child under lock
 
-	if isFocused && borderEnabled { // Use focus style only if border is enabled
-		currentBorderStyle = p.focusBorderStyle
-		// Get theme's default border type for focused pane if we're using Borland theme
-		app := p.App()
-		if app != nil {
-			if theme := app.GetTheme(); theme != nil && theme.Name() == tinytui.ThemeBorland {
-				bType = tinytui.BorderDouble // Use double border for Borland when focused
-			}
-		}
-
-		// Ensure focus background matches original if not explicitly set in focus style
-		_, _, _, bgSet := currentBorderStyle.Deconstruct()
-		if !bgSet {
-			_, origBg, _, _ := p.originalBorderStyle.Deconstruct()
-			currentBorderStyle = currentBorderStyle.Background(origBg)
-		}
+	// Check if any child is focused or if any descendant is focused
+	childFocused := false
+	if childWidget != nil {
+		childFocused = childWidget.IsFocused() || hasAnyFocusedDescendant(childWidget)
 	}
 	p.mu.RUnlock() // Unlock after reading state
 
+	// Use focused border style if any child is focused
+	if childFocused && borderEnabled {
+		currentBorderStyle = p.focusBorderStyle
+
+		// Use double border for Borland theme when a child is focused
+		app := p.App()
+		if app != nil {
+			if theme := app.GetTheme(); theme != nil && theme.Name() == tinytui.ThemeBorland {
+				bType = tinytui.BorderDouble // Use double border for Borland when child is focused
+			}
+		}
+	}
+
+	// Rest of the drawing code remains unchanged
 	// Calculate content area with proper border handling
 	contentX, contentY, contentWidth, contentHeight := x, y, width, height
 
@@ -244,41 +262,32 @@ func (p *Pane) Draw(screen tcell.Screen) {
 	}
 }
 
-// hasFocusableDescendant recursively checks if a widget or any of its children are focusable.
-func hasFocusableDescendant(w tinytui.Widget) bool {
+// hasAnyFocusedDescendant recursively checks if a widget or any of its children have focus.
+func hasAnyFocusedDescendant(w tinytui.Widget) bool {
 	if w == nil {
 		return false
 	}
-	// Check if the widget itself is focusable AND visible
-	// (An invisible widget, even if focusable, shouldn't count)
-	if w.Focusable() && w.IsVisible() {
+	// Check if the widget itself is focused
+	if w.IsFocused() {
 		return true
 	}
 	// Recursively check children
 	if children := w.Children(); children != nil {
 		for _, child := range children {
-			if hasFocusableDescendant(child) {
-				return true // Found a focusable descendant
+			if hasAnyFocusedDescendant(child) {
+				return true // Found a focused descendant
 			}
 		}
 	}
-	// No focusable descendant found in this branch
+	// No focused descendant found in this branch
 	return false
 }
 
 // Focusable indicates if the Pane itself should receive focus.
-// Updated to only be focusable if it contains no focusable descendants
+// It's only focusable if it contains no focusable descendants
 func (p *Pane) Focusable() bool {
-	if !p.IsVisible() {
-		return false
-	}
-
-	p.mu.RLock()
-	childWidget := p.child
-	p.mu.RUnlock()
-
-	// Pane is focusable only if it has no focusable descendants
-	return !hasFocusableDescendant(childWidget)
+	// Panes are never directly focusable in tab navigation
+	return false
 }
 
 // Focus is called when the pane gains focus.

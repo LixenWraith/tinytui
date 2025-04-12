@@ -3,7 +3,6 @@ package tinytui
 
 import "github.com/gdamore/tcell/v2"
 
-// NewDefaultTheme creates the default theme
 func NewDefaultTheme() Theme {
 	baseStyle := DefaultStyle
 	selectedStyle := baseStyle.Reverse(true)
@@ -17,22 +16,6 @@ func NewDefaultTheme() Theme {
 		textStyle:         DefaultStyle,
 		textSelectedStyle: DefaultStyle.Reverse(true),
 
-		// Button styles
-		buttonStyle:                  baseStyle,
-		buttonSelectedStyle:          selectedStyle,
-		buttonInteractedStyle:        interactedStyle,
-		buttonFocusedStyle:           focusedStyle,
-		buttonFocusedSelectedStyle:   focusedSelectedStyle,
-		buttonFocusedInteractedStyle: focusedInteractedStyle,
-
-		// List styles
-		listStyle:                  baseStyle,
-		listSelectedStyle:          selectedStyle,
-		listInteractedStyle:        interactedStyle,
-		listFocusedStyle:           focusedStyle,
-		listFocusedSelectedStyle:   focusedSelectedStyle,
-		listFocusedInteractedStyle: focusedInteractedStyle,
-
 		// Grid styles
 		gridStyle:                  baseStyle,
 		gridSelectedStyle:          selectedStyle,
@@ -41,12 +24,14 @@ func NewDefaultTheme() Theme {
 		gridFocusedSelectedStyle:   focusedSelectedStyle,
 		gridFocusedInteractedStyle: focusedInteractedStyle,
 
+		// Pane styles - only control colors, not border type
 		paneStyle:            DefaultStyle,
 		paneBorderStyle:      DefaultStyle,
 		paneFocusBorderStyle: DefaultStyle.Foreground(ColorYellow).Bold(true),
-		defaultBorderType:    BorderSingle,
-		defaultCellWidth:     10,
-		defaultCellHeight:    1,
+
+		// Default dimensions
+		defaultCellWidth:  10,
+		defaultCellHeight: 1,
 
 		// Add new theme properties
 		indicatorColor: ColorRed, // Red indicators for default theme
@@ -57,7 +42,7 @@ func NewDefaultTheme() Theme {
 // NewBorlandTheme creates a classic Borland blue theme
 func NewBorlandTheme() Theme {
 	// Updated Borland-style colors
-	bgColor := tcell.NewRGBColor(0, 0, 170)  // Darker Blue #0000AA
+	bgColor := tcell.ColorDarkBlue           // Darker Blue #0000AA
 	fgColor := tcell.ColorWhite              // White text
 	highlightBg := tcell.ColorLightCyan      // Cyan for selection
 	highlightFg := tcell.ColorBlack          // Black text on selection
@@ -65,9 +50,6 @@ func NewBorlandTheme() Theme {
 	borderFocusColor := tcell.ColorYellow    // Yellow for focused borders
 	indicatorColor := tcell.ColorRed         // Red for focus indicators
 	interactedColor := tcell.ColorLightGreen // Light green for interacted items
-
-	// Define shades of blue for different elements
-	darkBlue := tcell.NewRGBColor(0, 0, 128) // #000080
 
 	baseStyle := DefaultStyle.
 		Background(bgColor).
@@ -85,22 +67,6 @@ func NewBorlandTheme() Theme {
 		textStyle:         baseStyle,
 		textSelectedStyle: selectedStyle,
 
-		// Button styles
-		buttonStyle:                  DefaultStyle.Background(darkBlue).Foreground(fgColor),
-		buttonSelectedStyle:          selectedStyle,
-		buttonInteractedStyle:        interactedStyle,
-		buttonFocusedStyle:           DefaultStyle.Background(darkBlue).Foreground(fgColor).Underline(true),
-		buttonFocusedSelectedStyle:   focusedSelectedStyle,
-		buttonFocusedInteractedStyle: focusedInteractedStyle,
-
-		// List styles
-		listStyle:                  baseStyle,
-		listSelectedStyle:          selectedStyle,
-		listInteractedStyle:        interactedStyle,
-		listFocusedStyle:           focusedStyle,
-		listFocusedSelectedStyle:   focusedSelectedStyle,
-		listFocusedInteractedStyle: focusedInteractedStyle,
-
 		// Grid styles
 		gridStyle:                  baseStyle,
 		gridSelectedStyle:          selectedStyle,
@@ -109,12 +75,14 @@ func NewBorlandTheme() Theme {
 		gridFocusedSelectedStyle:   focusedSelectedStyle,
 		gridFocusedInteractedStyle: focusedInteractedStyle,
 
+		// Pane styles - only control colors, not border type
 		paneStyle:            baseStyle,
 		paneBorderStyle:      baseStyle.Foreground(borderColor),
 		paneFocusBorderStyle: baseStyle.Foreground(borderFocusColor).Bold(true),
-		defaultBorderType:    BorderDouble, // Change to double border for Borland theme
-		defaultCellWidth:     10,
-		defaultCellHeight:    1,
+
+		// Default dimensions
+		defaultCellWidth:  10,
+		defaultCellHeight: 1,
 
 		// Add indicator color to the theme
 		indicatorColor: indicatorColor,
