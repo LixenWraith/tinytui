@@ -168,7 +168,7 @@ func NewDefaultTheme() Theme {
 	baseStyle := DefaultStyle
 	selectedStyle := baseStyle.Reverse(true)
 	interactedStyle := baseStyle.Bold(true)
-	focusedStyle := baseStyle.Underline(true)
+	focusedStyle := baseStyle
 	focusedSelectedStyle := baseStyle.Reverse(true).Underline(true)
 	focusedInteractedStyle := baseStyle.Reverse(true).Bold(true)
 
@@ -231,7 +231,7 @@ func NewBorlandTheme() Theme {
 	// Define all the state styles
 	selectedStyle := DefaultStyle.Background(highlightBg).Foreground(highlightFg)
 	interactedStyle := DefaultStyle.Background(bgColor).Foreground(interactedColor).Bold(true)
-	focusedStyle := baseStyle.Underline(true)
+	focusedStyle := baseStyle
 	focusedSelectedStyle := selectedStyle.Underline(true)
 	focusedInteractedStyle := DefaultStyle.Background(highlightBg).Foreground(interactedColor).Bold(true)
 

@@ -46,7 +46,7 @@ func NewGrid() *Grid {
 		style:                  tinytui.DefaultGridStyle(),
 		selectedStyle:          tinytui.DefaultGridStyle().Dim(true).Underline(true),
 		interactedStyle:        tinytui.DefaultGridStyle().Bold(true),
-		focusedStyle:           tinytui.DefaultGridStyle().Underline(true),
+		focusedStyle:           tinytui.DefaultGridStyle(),
 		focusedSelectedStyle:   tinytui.DefaultGridSelectedStyle(),
 		focusedInteractedStyle: tinytui.DefaultGridSelectedStyle().Bold(true),
 	}
@@ -346,6 +346,13 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	rows, cols := g.numRows, g.numCols
 	g.mu.RUnlock()
 
+	// Extract base colors for background fills
+	baseFg, baseBg, _, _ := baseStyle.Deconstruct()
+	baseFillStyle := tinytui.DefaultStyle.Foreground(baseFg).Background(baseBg)
+
+	// Fill the entire grid background with base style (without attributes)
+	tinytui.Fill(screen, x, y, width, height, ' ', baseFillStyle)
+
 	visibleRows := height / cHeight
 	visibleCols := width / cWidth
 
@@ -401,10 +408,14 @@ func (g *Grid) Draw(screen tcell.Screen) {
 				}
 			}
 
-			// Clear cell background
-			tinytui.Fill(screen, cellX, cellY, drawWidth, drawHeight, ' ', cellStyle)
+			// Extract just colors for background fill
+			cellFg, cellBg, _, _ := cellStyle.Deconstruct()
+			cellFillStyle := tinytui.DefaultStyle.Foreground(cellFg).Background(cellBg)
 
-			// Draw content
+			// Clear cell background with colors only (no attributes)
+			tinytui.Fill(screen, cellX, cellY, drawWidth, drawHeight, ' ', cellFillStyle)
+
+			// Draw content with full style including attributes
 			item := cells[gridRow][gridCol]
 			// Simple truncation for drawing within the cell
 			displayText := runewidth.Truncate(item, drawWidth, "") // Use runewidth for truncation

@@ -35,7 +35,7 @@ func NewList() *List {
 		style:                  tinytui.DefaultListStyle(),
 		selectedStyle:          tinytui.DefaultListStyle().Dim(true).Underline(true),
 		interactedStyle:        tinytui.DefaultListStyle().Bold(true),
-		focusedStyle:           tinytui.DefaultListStyle().Underline(true),
+		focusedStyle:           tinytui.DefaultListStyle(),
 		focusedSelectedStyle:   tinytui.DefaultListSelectedStyle(),
 		focusedInteractedStyle: tinytui.DefaultListSelectedStyle().Bold(true),
 	}
@@ -297,9 +297,11 @@ func (l *List) Draw(screen tcell.Screen) {
 
 	l.mu.RUnlock() // Release lock after getting needed data
 
-	// Fill the entire background with the base style
-	// This ensures consistent appearance even with partial item lists
-	tinytui.Fill(screen, x, y, width, height, ' ', baseStyle)
+	// Fill the background only once with the base style (no attributes)
+	// Use Foreground/Background only to avoid extending attributes like underline
+	fg, bg, _, _ := baseStyle.Deconstruct()
+	fillStyle := tinytui.DefaultStyle.Foreground(fg).Background(bg)
+	tinytui.Fill(screen, x, y, width, height, ' ', fillStyle)
 
 	// Add some padding for better readability
 	padding := 1
@@ -338,23 +340,27 @@ func (l *List) Draw(screen tcell.Screen) {
 				}
 			}
 
-			// Clear the line with the style's background
-			tinytui.Fill(screen, x, drawY, width, 1, ' ', itemStyle)
+			// Extract just the colors for the background fill to avoid attribute issues
+			fgItem, bgItem, _, _ := itemStyle.Deconstruct()
+			fillItemStyle := tinytui.DefaultStyle.Foreground(fgItem).Background(bgItem)
+
+			// Fill just the line background without attributes
+			tinytui.Fill(screen, x, drawY, width, 1, ' ', fillItemStyle)
 
 			// Item indicator for selected items (shows focus clearly)
 			if itemIndex == selIdx {
-				// Draw a focus indicator
+				// Draw a focus indicator with full style including attributes
 				screen.SetContent(x, drawY, '>', nil, itemStyle.ToTcell())
 				padding = 2 // More padding when showing indicator
 			}
 
-			// Truncate text if needed and draw with padding
+			// Truncate text if needed
 			displayText := item
 			if runewidth.StringWidth(item) > effectiveWidth {
 				displayText = runewidth.Truncate(item, effectiveWidth, "")
 			}
 
-			// Draw the item text with padding
+			// Draw the item text with full style including attributes
 			tinytui.DrawText(screen, x+padding, drawY, itemStyle, displayText)
 		}
 	}

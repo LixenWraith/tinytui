@@ -224,9 +224,13 @@ func (b *Button) Draw(screen tcell.Screen) {
 
 	b.mu.RUnlock() // Release lock
 
-	// Rest of the Draw method remains largely unchanged
+	// Extract colors for background fill (without attributes)
+	fg, bg, _, _ := currentStyle.Deconstruct()
+	fillStyle := tinytui.DefaultStyle.Foreground(fg).Background(bg)
+
 	// IMPORTANT: Always fill the entire button background first
-	tinytui.Fill(screen, x, y, width, height, ' ', currentStyle)
+	// Use fillStyle (without attributes) to avoid extending effects like underline
+	tinytui.Fill(screen, x, y, width, height, ' ', fillStyle)
 
 	// Calculate vertical center for text alignment
 	textY := y
@@ -284,6 +288,34 @@ func (b *Button) Draw(screen tcell.Screen) {
 		labelStartX = x + indicatorWidth + 1
 	}
 
+	// Add a visual button boundary to make it more visible
+	if width > 2 && height > 0 {
+		// Draw button outline with full style (including attributes)
+		for i := 0; i < width; i++ {
+			// Top border
+			screen.SetContent(x+i, y, '─', nil, currentStyle.ToTcell())
+			// Bottom border if height allows
+			if height > 1 {
+				screen.SetContent(x+i, y+height-1, '─', nil, currentStyle.ToTcell())
+			}
+		}
+		// Side borders if width allows
+		if height > 2 {
+			for i := 1; i < height-1; i++ {
+				screen.SetContent(x, y+i, '│', nil, currentStyle.ToTcell())
+				screen.SetContent(x+width-1, y+i, '│', nil, currentStyle.ToTcell())
+			}
+		}
+
+		// Corners if both width and height allow
+		if width > 1 && height > 1 {
+			screen.SetContent(x, y, '┌', nil, currentStyle.ToTcell())
+			screen.SetContent(x+width-1, y, '┐', nil, currentStyle.ToTcell())
+			screen.SetContent(x, y+height-1, '└', nil, currentStyle.ToTcell())
+			screen.SetContent(x+width-1, y+height-1, '┘', nil, currentStyle.ToTcell())
+		}
+	}
+
 	// Draw the label (clipped) - always draw label even if very small
 	if labelWidth > 0 {
 		col := labelStartX
@@ -304,13 +336,13 @@ func (b *Button) Draw(screen tcell.Screen) {
 		// Truncate text to available width
 		displayText := runewidth.Truncate(labelText, availableDisplayWidth, "")
 
-		// Draw the label at vertical center when height > 1
+		// Draw the label with full style (including attributes)
 		tinytui.DrawText(screen, col, textY, currentStyle, displayText)
 	}
 
 	// Draw Indicator (if shown and space permits)
 	if showIndicator && indicatorX >= x && indicatorX+indicatorWidth <= x+width {
-		// Use the exported ToTcell() method here
+		// Use the exported ToTcell() method here with full style
 		screen.SetContent(indicatorX, y, indicatorChar, nil, currentStyle.ToTcell())
 	}
 }

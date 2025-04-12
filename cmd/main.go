@@ -277,7 +277,7 @@ func createTextDemo() *widgets.Pane {
 	layout.AddChild(stateText, 1, 0)
 
 	// Set layout as pane's child
-	// pane.SetChild(layout)
+	pane.SetChild(layout)
 
 	return pane
 }
@@ -328,22 +328,22 @@ func createButtonDemo() *widgets.Pane {
 
 	// Add description text explaining state management
 	stateDesc := widgets.NewText("Tab to another widget - selection state is preserved")
+
+	// Add widgets to layout with proper spacing
+	layout.AddChild(title, 1, 0)
 	layout.AddChild(stateDesc, 1, 0)
+
+	// Add a fixed height (1) empty text for spacing
+	spacer1 := widgets.NewText("")
+	layout.AddChild(spacer1, 1, 0)
 
 	// Add buttons to horizontal layout with FIXED WIDTH to ensure visibility
 	buttonLayout.AddChild(button1, 8, 0)  // Fixed width 8
 	buttonLayout.AddChild(button2, 10, 0) // Fixed width 10
 	buttonLayout.AddChild(button3, 8, 0)  // Fixed width 8
 
-	// Add widgets to layout with proper spacing
-	layout.AddChild(title, 1, 0)
-
-	// Add a fixed height (1) empty text for spacing
-	spacer1 := widgets.NewText("")
-	layout.AddChild(spacer1, 1, 0)
-
-	// Use fixed height (1) for button row - IMPORTANT CHANGE!
-	layout.AddChild(buttonLayout, 1, 0)
+	// Use fixed height (3) for button row to ensure visibility - INCREASED HEIGHT
+	layout.AddChild(buttonLayout, 3, 0)
 
 	// Add description text with proper spacing
 	spacer2 := widgets.NewText("")
