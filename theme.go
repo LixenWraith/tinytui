@@ -48,6 +48,10 @@ type Theme interface {
 	// Indicator and padding
 	IndicatorColor() Color // Color for selection indicators
 	DefaultPadding() int   // Default padding for widgets
+
+	// Border types
+	DefaultBorderType() BorderType // Default border type for unfocused panes
+	FocusedBorderType() BorderType // Border type for panes when a child has focus
 }
 
 // themeManager handles the current theme and theme switching
@@ -236,6 +240,24 @@ func DefaultIndicatorColor() Color {
 		return theme.IndicatorColor()
 	}
 	return ColorRed // Default value
+}
+
+// DefaultBorderType returns the current theme's default border type
+func DefaultBorderType() BorderType {
+	theme := GetTheme()
+	if theme != nil {
+		return theme.DefaultBorderType()
+	}
+	return BorderSingle // Default fallback
+}
+
+// FocusedBorderType returns the current theme's focused border type
+func FocusedBorderType() BorderType {
+	theme := GetTheme()
+	if theme != nil {
+		return theme.FocusedBorderType()
+	}
+	return BorderSingle // Default fallback
 }
 
 // GetGridStyle returns the appropriate style for a grid widget based on its state and focus

@@ -7,6 +7,22 @@ import (
 
 // processEvent is called by the main loop to handle a single tcell event.
 func (a *Application) processEvent(ev tcell.Event) {
+	// Handle key events with global keybindings first
+	if keyEvent, ok := ev.(*tcell.EventKey); ok {
+		a.mu.Lock()
+		combo := keyModCombo{
+			Key: keyEvent.Key(),
+			Mod: keyEvent.Modifiers(),
+		}
+
+		handler, found := a.globalKeyBindings[combo]
+		a.mu.Unlock()
+
+		if found && handler() {
+			return // Global keybinding handled the event
+		}
+	}
+
 	// Get current state needed for event routing
 	a.mu.Lock()
 	currentFocused := a.focused
@@ -73,32 +89,11 @@ func (a *Application) processEvent(ev tcell.Event) {
 // handleGlobalKeys processes key events that have application-wide or modal-specific behavior.
 // Returns true if the key was consumed.
 func (a *Application) handleGlobalKeys(key tcell.Key, currentRoot, currentFocused, currentModalRoot Widget) bool {
+	// Don't handle Escape here since it's now handled by global keybindings
 	switch key {
 	case tcell.KeyCtrlC: // Ctrl+C always quits
 		a.Stop()
 		return true
-
-	case tcell.KeyEscape: // Contextual Escape
-		if currentModalRoot != nil {
-			// Dispatch function to close modal
-			a.Dispatch(func(app *Application) {
-				if currentModalRoot != nil { // Use the captured currentModalRoot
-					currentModalRoot.SetVisible(false) // Hide the widget that was modal
-					app.ClearModalRoot()               // Use method to clear internal state
-
-					// Find focus target *outside* the now-hidden modal
-					var returnFocus Widget
-					if app.root != nil {
-						returnFocus = app.findFirstFocusable(app.root)
-					}
-					app.SetFocus(returnFocus)
-				}
-			})
-			return true
-		} else {
-			a.Stop()
-			return true
-		}
 
 	case tcell.KeyTab: // --- Focus Forward ---
 		searchRoot := currentRoot

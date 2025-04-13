@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/LixenWraith/tinytui"
@@ -11,26 +10,56 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+// TodoItem represents a single todo entry with text and completion state
 type TodoItem struct {
 	Text      string
 	Completed bool
+}
+
+// ThemeOption represents a selectable theme option
+type ThemeOption struct {
+	Name      string
+	ThemeName tinytui.ThemeName
+}
+
+// Make the updateStats variable a function variable to allow replacement
+var updateStats func(todos *[]TodoItem, statsGrid *widgets.Grid) = func(todos *[]TodoItem, statsGrid *widgets.Grid) {
+	total := len(*todos)
+	completed := 0
+
+	for _, todo := range *todos {
+		if todo.Completed {
+			completed++
+		}
+	}
+
+	remaining := total - completed
+	progress := 0
+	if total > 0 {
+		progress = (completed * 100) / total
+	}
+
+	statsGrid.SetCells([][]string{
+		{fmt.Sprintf("Total Tasks: %d", total)},
+		{fmt.Sprintf("Completed: %d", completed)},
+		{fmt.Sprintf("Remaining: %d", remaining)},
+		{fmt.Sprintf("Progress: %d%%", progress)},
+	})
 }
 
 func main() {
 	// Create application
 	app := tinytui.NewApplication()
 	if app == nil {
-		fmt.Println("Error: Could not create application")
+		fmt.Fprintln(os.Stderr, "Error: Could not create application")
 		os.Exit(1)
 	}
 
 	// Create main layout with two columns
 	mainLayout := tinytui.NewFlexLayout(tinytui.Horizontal)
 
-	// Create sidebar for theme and controls
+	// Create sidebar and content area
 	sidebar := createSidebar(app)
-
-	// Create content area with todo list example
 	contentArea := createContentArea(app)
 
 	// Add components to main layout
@@ -41,7 +70,7 @@ func main() {
 	app.SetRoot(mainLayout, true)
 
 	// Global key binding to quit with Escape
-	mainLayout.SetKeybinding(tcell.KeyEscape, tcell.ModNone, func() bool {
+	app.SetKeybinding(tcell.KeyEscape, tcell.ModNone, func() bool {
 		app.Stop()
 		return true
 	})
@@ -55,97 +84,47 @@ func main() {
 
 // createSidebar creates the left sidebar with theme selection and controls
 func createSidebar(app *tinytui.Application) *widgets.Pane {
-	// Create sidebar pane with border
+	// Create sidebar pane with themed border
 	sidebarPane := widgets.NewPane()
-	sidebarPane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
+	sidebarPane.SetBorder(true, tinytui.DefaultBorderType(), tinytui.DefaultPaneBorderStyle())
 
 	// Create vertical layout for sidebar content
 	sidebarLayout := tinytui.NewFlexLayout(tinytui.Vertical)
 	sidebarLayout.SetGap(1)
+	sidebarLayout.SetMainAxisAlignment(tinytui.AlignStart)
+	sidebarLayout.SetCrossAxisAlignment(tinytui.AlignStretch)
 
-	// Add title
-	titleText := widgets.NewText("TinyTUI Demo")
-	titleText.SetStyle(tinytui.DefaultTextStyle().Bold(true))
+	// Define available themes
+	themeOptions := []ThemeOption{
+		{Name: "Default Theme", ThemeName: tinytui.ThemeDefault},
+		{Name: "Turbo Classic", ThemeName: tinytui.ThemeTurbo},
+	}
 
-	// Add clock display that updates
-	clockText := widgets.NewText(time.Now().Format("15:04:05"))
+	// Create title section
+	titleSection := createTitleSection()
 
-	// Create theme selector section with header
-	themeHeader := widgets.NewText("Theme Selection")
-	themeHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
-
-	// Theme selector grid
-	themeGrid := widgets.NewGrid()
-	themeGrid.SetCellSize(24, 1)
-	themeGrid.SetPadding(1)
-	themeGrid.SetSelectionMode(widgets.SingleSelect) // Explicitly set to single select mode
-	themeGrid.SetCells([][]string{
-		{"Default Theme"},
-		{"Turbo Classic"},
-	})
-
-	// Handle theme selection
-	themeGrid.SetOnSelect(func(row, col int, item string) {
-		var themeName tinytui.ThemeName
-		switch row {
-		case 0:
-			themeName = tinytui.ThemeDefault
-		case 1:
-			themeName = tinytui.ThemeTurbo
-		}
-
-		// Apply selected theme
-		if app.SetTheme(themeName) {
-			clockText.SetContent(fmt.Sprintf("%s - Theme Changed", time.Now().Format("15:04:05")))
-		}
-	})
+	// Create theme selector section
+	themeSection := createThemeSection(app, themeOptions)
 
 	// Create help section
-	helpHeader := widgets.NewText("Keyboard Controls")
-	helpHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+	helpSection := createHelpSection()
 
-	helpItems := []string{
-		"Tab: Move focus",
-		"Arrow Keys: Navigate",
-		"Space: Interact",
-		"Enter: Toggle interaction",
-		"Backspace: Cancel interaction",
-		"Escape: Quit application",
-	}
+	// Create status section
+	statusSection := createStatusSection(app)
 
-	// Create button-like grid for refreshing
-	refreshGrid := widgets.NewGrid()
-	refreshGrid.SetCellSize(24, 1)
-	refreshGrid.SetPadding(1)
-	refreshGrid.SetCells([][]string{{"Refresh Time"}})
-
-	// Handle refresh button
-	refreshGrid.SetOnSelect(func(row, col int, item string) {
-		clockText.SetContent(time.Now().Format("15:04:05"))
-	})
-
-	// Add all components to layout
-	sidebarLayout.AddChild(titleText, 2, 0)
-	sidebarLayout.AddChild(clockText, 2, 0)
+	// Add all sections to the sidebar layout
+	sidebarLayout.AddChild(titleSection, 4, 0)
 	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-
-	sidebarLayout.AddChild(themeHeader, 1, 0)
-	sidebarLayout.AddChild(themeGrid, 4, 0)
+	sidebarLayout.AddChild(themeSection, 7, 0)
 	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-
-	sidebarLayout.AddChild(helpHeader, 1, 0)
-	for _, item := range helpItems {
-		helpText := widgets.NewText(item)
-		sidebarLayout.AddChild(helpText, 1, 0)
-	}
-
+	sidebarLayout.AddChild(helpSection, 10, 0)
 	sidebarLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-	sidebarLayout.AddChild(refreshGrid, 3, 0)
+	sidebarLayout.AddChild(statusSection, 0, 1)       // Flexible space
 
 	// Add footer with version
-	footer := widgets.NewText("TinyTUI v1.0.0")
+	footer := widgets.NewText("TinyTUI v1.1.0")
 	footer.SetStyle(tinytui.DefaultTextStyle().Italic(true))
-	sidebarLayout.AddChild(footer, 0, 1) // Take remaining space
+	sidebarLayout.AddChild(footer, 1, 0)
 
 	// Set the layout as pane's child
 	sidebarPane.SetChild(sidebarLayout)
@@ -153,46 +132,184 @@ func createSidebar(app *tinytui.Application) *widgets.Pane {
 	return sidebarPane
 }
 
-// createContentArea creates the main content area with a todo list
-func createContentArea(app *tinytui.Application) *widgets.Pane {
-	// Create main content pane with border
-	contentPane := widgets.NewPane()
-	contentPane.SetBorder(true, tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
+// createTitleSection creates the app title section
+func createTitleSection() *tinytui.FlexLayout {
+	titleLayout := tinytui.NewFlexLayout(tinytui.Vertical)
 
-	// Create layout for content
-	contentLayout := tinytui.NewFlexLayout(tinytui.Vertical)
-	contentLayout.SetGap(1)
-
-	// Add title
-	titleText := widgets.NewText("Todo List Example")
+	// Title text with bold style
+	titleText := widgets.NewText("TinyTUI Demo")
 	titleText.SetStyle(tinytui.DefaultTextStyle().Bold(true))
 
-	// Create a description
-	descText := widgets.NewText("Use Space to toggle item completion. Enter to edit status.")
-	descText.SetWrap(true)
+	// Description text
+	descText := widgets.NewText("A lightweight terminal UI demo")
+
+	titleLayout.AddChild(titleText, 1, 0)
+	titleLayout.AddChild(descText, 1, 0)
+
+	return titleLayout
+}
+
+// createThemeSection creates the theme selector section
+func createThemeSection(app *tinytui.Application, themeOptions []ThemeOption) *tinytui.FlexLayout {
+	themeLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+
+	// Theme section header
+	themeHeader := widgets.NewText("Theme Selection")
+	themeHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	// Create theme selector grid
+	themeGrid := widgets.NewGrid()
+	themeGrid.SetSelectionMode(widgets.SingleSelect)
+	themeGrid.SetCellSize(24, 1)
+	themeGrid.SetPadding(1)
+
+	// Populate theme grid
+	themeItems := make([][]string, len(themeOptions))
+	for i, theme := range themeOptions {
+		themeItems[i] = []string{theme.Name}
+	}
+	themeGrid.SetCells(themeItems)
+
+	// Find and set initial selection based on current theme
+	currentTheme := app.GetTheme().Name()
+	for i, theme := range themeOptions {
+		if theme.ThemeName == currentTheme {
+			themeGrid.SetSelectedIndex(i, 0)
+			themeGrid.SetCellInteracted(i, 0, true)
+			break
+		}
+	}
+
+	// Handle theme selection
+	themeGrid.SetOnSelect(func(row, col int, item string) {
+		if row >= 0 && row < len(themeOptions) {
+			// Apply the selected theme
+			app.SetTheme(themeOptions[row].ThemeName)
+
+			// Update grid interaction state
+			themeGrid.ClearInteractions()
+			themeGrid.SetCellInteracted(row, col, true)
+		}
+	})
+
+	themeLayout.AddChild(themeHeader, 1, 0)
+	themeLayout.AddChild(themeGrid, 0, 1)
+
+	return themeLayout
+}
+
+// createHelpSection creates the keyboard help guide
+func createHelpSection() *tinytui.FlexLayout {
+	helpLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+
+	// Help section header
+	helpHeader := widgets.NewText("Keyboard Controls")
+	helpHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+
+	// Help items
+	helpItems := []string{
+		"Tab: Move focus",
+		"Arrow Keys: Navigate",
+		"Space/Enter: Toggle selection",
+		"Backspace: Clear selection",
+		"Escape: Quit application",
+	}
+
+	// Add all help items
+	helpLayout.AddChild(helpHeader, 1, 0)
+	for _, item := range helpItems {
+		helpText := widgets.NewText(item)
+		helpLayout.AddChild(helpText, 1, 0)
+	}
+
+	return helpLayout
+}
+
+// createStatusSection creates the status section with clock
+func createStatusSection(app *tinytui.Application) *tinytui.FlexLayout {
+	statusLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+
+	// Initial clock text
+	clockText := widgets.NewText(time.Now().Format("15:04:05"))
+
+	// Create refresh button
+	refreshButton := widgets.NewGrid()
+	refreshButton.SetCellSize(24, 1)
+	refreshButton.SetPadding(1)
+	refreshButton.SetCells([][]string{{"Refresh Time"}})
+
+	// Handle refresh button
+	refreshButton.SetOnSelect(func(row, col int, item string) {
+		clockText.SetContent(time.Now().Format("15:04:05"))
+
+		// Visual feedback for button press
+		refreshButton.ClearInteractions()
+		refreshButton.SetCellInteracted(row, col, true)
+
+		// Clear interaction after a short delay
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			app.Dispatch(func(app *tinytui.Application) {
+				refreshButton.ClearInteractions()
+			})
+		}()
+	})
+
+	statusLayout.AddChild(clockText, 1, 0)
+	statusLayout.AddChild(refreshButton, 2, 0)
+
+	return statusLayout
+}
+
+// createContentArea creates the main content area with a todo list
+func createContentArea(app *tinytui.Application) *widgets.Pane {
+	// Create content pane with border
+	contentPane := widgets.NewPane()
+	contentPane.SetBorder(true, tinytui.DefaultBorderType(), tinytui.DefaultPaneBorderStyle())
+
+	// Create main layout for todo app
+	contentLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+	contentLayout.SetGap(1)
 
 	// Status text for showing actions
 	statusText := widgets.NewText("Ready")
 	statusText.SetStyle(tinytui.DefaultTextStyle().Italic(true))
 
-	// Initial todo items
+	// Initialize todo model as a slice pointer so it can be shared
 	todos := []TodoItem{
 		{Text: "Learn TinyTUI basics", Completed: true},
 		{Text: "Create a todo list app", Completed: false},
 		{Text: "Implement theme switching", Completed: false},
 		{Text: "Add keyboard navigation", Completed: false},
 		{Text: "Test on different terminals", Completed: false},
-		{Text: "Document the code", Completed: false},
-		{Text: "Share with others", Completed: false},
 	}
 
-	// Create grid for todo list
+	// Create todo grid
 	todoGrid := widgets.NewGrid()
-	todoGrid.SetCellSize(0, 1) // Auto-width
+	todoGrid.SetSelectionMode(widgets.MultiSelect)
+	todoGrid.SetCellSize(40, 1)
+	todoGrid.SetAutoWidth(true)
 	todoGrid.SetPadding(1)
-	todoGrid.SetSelectionMode(widgets.MultiSelect) // Use multi-select mode for todos
 
-	// Function to update grid cells from todos
+	// Create todo header
+	todoHeader := widgets.NewPane()
+	todoHeaderText := widgets.NewText("Todo List")
+	todoHeaderText.SetStyle(tinytui.DefaultTextStyle().Bold(true))
+	todoHeader.SetChild(todoHeaderText)
+
+	// Create stats grid separately so it can be passed to update function
+	statsGrid := widgets.NewGrid()
+	statsGrid.SetCellSize(25, 1)
+	statsGrid.SetPadding(1)
+	statsGrid.SetSelectionMode(widgets.SingleSelect)
+
+	// Create todo control section
+	todoControls := createTodoControls(app, &todos, todoGrid, statusText, statsGrid)
+
+	// Create todo stats section
+	statsSection := createStatsSection(app, &todos, todoGrid, statusText, statsGrid)
+
+	// Synchronize grid with the todo model
 	updateTodoGrid := func() {
 		cells := make([][]string, len(todos))
 		for i, todo := range todos {
@@ -203,118 +320,254 @@ func createContentArea(app *tinytui.Application) *widgets.Pane {
 			cells[i] = []string{fmt.Sprintf("%s %s", status, todo.Text)}
 		}
 		todoGrid.SetCells(cells)
+
+		// Synchronize interaction states with completion status
+		todoGrid.ClearInteractions()
+		for i, todo := range todos {
+			if todo.Completed {
+				todoGrid.SetCellInteracted(i, 0, true)
+			}
+		}
+
+		// Update stats
+		updateStats(&todos, statsGrid)
 	}
 
 	// Initial grid update
 	updateTodoGrid()
 
-	// Set interactions for todo grid
+	// Handle todo item toggle
 	todoGrid.SetOnSelect(func(row, col int, item string) {
-		// Toggle completion status
 		if row >= 0 && row < len(todos) {
+			// Toggle completion status
 			todos[row].Completed = !todos[row].Completed
+
+			// Update UI to reflect the change
 			updateTodoGrid()
 
-			item := todos[row]
+			// Update status message
 			status := "incomplete"
-			if item.Completed {
+			if todos[row].Completed {
 				status = "complete"
 			}
-			statusText.SetContent(fmt.Sprintf("Marked '%s' as %s", item.Text, status))
+			statusText.SetContent(fmt.Sprintf("Marked '%s' as %s", todos[row].Text, status))
 		}
 	})
 
+	// Handle selection changes
 	todoGrid.SetOnChange(func(row, col int, item string) {
 		if row >= 0 && row < len(todos) {
-			todo := todos[row]
 			status := "incomplete"
-			if todo.Completed {
+			if todos[row].Completed {
 				status = "complete"
 			}
-			statusText.SetContent(fmt.Sprintf("Selected: '%s' (%s)", todo.Text, status))
+			statusText.SetContent(fmt.Sprintf("Selected: '%s' (%s)", todos[row].Text, status))
 		}
 	})
 
-	// Create a section for adding new todos
-	addTodoHeader := widgets.NewText("Add New Todo")
-	addTodoHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
+	// Add components to content layout
+	contentLayout.AddChild(todoHeader, 2, 0)
+	contentLayout.AddChild(todoGrid, 10, 0)
+	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+	contentLayout.AddChild(todoControls, 6, 0)
+	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
+	contentLayout.AddChild(statsSection, 6, 0)
+	contentLayout.AddChild(widgets.NewText(""), 0, 1) // Flexible spacer
+	contentLayout.AddChild(statusText, 1, 0)          // Status at bottom
 
-	// Text explaining how to add (since we don't have real input)
-	addTodoText := widgets.NewText("Select an action to simulate adding a todo")
+	// Set content layout as pane's child
+	contentPane.SetChild(contentLayout)
 
-	// Grid with add options
-	addOptionsGrid := widgets.NewGrid()
-	addOptionsGrid.SetCellSize(30, 1)
-	addOptionsGrid.SetPadding(1)
-	addOptionsGrid.SetSelectionMode(widgets.SingleSelect) // Explicitly set to single select mode
-	addOptionsGrid.SetCells([][]string{
-		{"Add: Buy groceries"},
-		{"Add: Call mom"},
-		{"Add: Fix the bug"},
-		{"Add: Clean up code"},
-	})
+	return contentPane
+}
 
-	// Handle adding new todos
-	addOptionsGrid.SetOnSelect(func(row, col int, item string) {
-		// Extract todo text from the selection
-		text := strings.TrimPrefix(item, "Add: ")
+// createTodoControls creates the add/remove todo controls
+// Improved to directly connect selection to action
+func createTodoControls(app *tinytui.Application, todos *[]TodoItem, todoGrid *widgets.Grid, statusText *widgets.Text, statsGrid *widgets.Grid) *tinytui.FlexLayout {
+	controlsLayout := tinytui.NewFlexLayout(tinytui.Vertical)
 
-		// Add the new todo
-		todos = append(todos, TodoItem{Text: text, Completed: false})
-		updateTodoGrid()
+	// Add new todo section header
+	addHeader := widgets.NewText("Add New Todo")
+	addHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
 
-		statusText.SetContent(fmt.Sprintf("Added new todo: '%s'", text))
-	})
+	// Explanation text
+	addText := widgets.NewText("Select an option to add a new todo:")
 
-	// Create a section for data summary
+	// Predefined options
+	options := []string{
+		"Buy groceries",
+		"Write documentation",
+		"Fix reported bugs",
+		"Review pull requests",
+	}
+
+	// Create option buttons - each option is directly clickable
+	optionsLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+
+	for _, option := range options {
+		// Create a button-like grid for each option
+		optionGrid := widgets.NewGrid()
+		optionGrid.SetCellSize(40, 1)
+		optionGrid.SetPadding(1)
+		optionGrid.SetSelectionMode(widgets.SingleSelect)
+		optionGrid.SetCells([][]string{{option}})
+
+		// Set direct action on selection
+		todoText := option // Capture the option text outside the closure
+		optionGrid.SetOnSelect(func(row, col int, item string) {
+			// Add new todo item using the option text
+
+			// Add new todo item
+			*todos = append(*todos, TodoItem{Text: todoText, Completed: false})
+
+			// Update UI
+			updateTodoGridFromOptions(*todos, todoGrid, statsGrid)
+
+			// Update status
+			statusText.SetContent(fmt.Sprintf("Added new todo: '%s'", todoText))
+
+			// Provide visual feedback
+			optionGrid.ClearInteractions()
+			optionGrid.SetCellInteracted(row, col, true)
+
+			// Clear button interaction after a short delay
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				app.Dispatch(func(app *tinytui.Application) {
+					optionGrid.ClearInteractions()
+				})
+			}()
+		})
+
+		optionsLayout.AddChild(optionGrid, 1, 0)
+	}
+
+	// Add all components to layout
+	controlsLayout.AddChild(addHeader, 1, 0)
+	controlsLayout.AddChild(addText, 1, 0)
+	controlsLayout.AddChild(optionsLayout, 0, 1)
+
+	return controlsLayout
+}
+
+// Helper function to update todo grid from options
+func updateTodoGridFromOptions(todos []TodoItem, todoGrid *widgets.Grid, statsGrid *widgets.Grid) {
+	// Update grid cells
+	cells := make([][]string, len(todos))
+	for i, todo := range todos {
+		status := "[ ]"
+		if todo.Completed {
+			status = "[✓]"
+		}
+		cells[i] = []string{fmt.Sprintf("%s %s", status, todo.Text)}
+	}
+	todoGrid.SetCells(cells)
+
+	// Sync interaction states
+	todoGrid.ClearInteractions()
+	for i, todo := range todos {
+		if todo.Completed {
+			todoGrid.SetCellInteracted(i, 0, true)
+		}
+	}
+
+	// Update stats
+	updateStats(&todos, statsGrid)
+}
+
+// createStatsSection creates the statistics and clear completed section
+// Improved with fixes for button visibility
+func createStatsSection(app *tinytui.Application, todos *[]TodoItem, todoGrid *widgets.Grid, statusText *widgets.Text, statsGrid *widgets.Grid) *tinytui.FlexLayout {
+	statsLayout := tinytui.NewFlexLayout(tinytui.Vertical)
+
+	// Stats header
 	statsHeader := widgets.NewText("Summary")
 	statsHeader.SetStyle(tinytui.DefaultTextStyle().Underline(true))
 
-	// Create grid for statistics
-	statsGrid := widgets.NewGrid()
-	statsGrid.SetCellSize(20, 1)
-	statsGrid.SetPadding(1)
+	// Create non-focusable stats display using Text widgets
+	statsDisplay := tinytui.NewFlexLayout(tinytui.Vertical)
 
-	// Function to update statistics
-	updateStats := func() {
-		total := len(todos)
+	// Create individual text fields for each stat
+	totalText := widgets.NewText("")
+	completedText := widgets.NewText("")
+	remainingText := widgets.NewText("")
+	progressText := widgets.NewText("")
+
+	// Style the stats text - make them stand out more
+	totalStyle := tinytui.DefaultTextStyle().Bold(true)
+	totalText.SetStyle(totalStyle)
+
+	// Add them to display layout
+	statsDisplay.AddChild(totalText, 1, 0)
+	statsDisplay.AddChild(completedText, 1, 0)
+	statsDisplay.AddChild(remainingText, 1, 0)
+	statsDisplay.AddChild(progressText, 1, 0)
+
+	// Create custom updateStats function that works with Text widgets
+	updateStatsDisplay := func(todos *[]TodoItem) {
+		total := len(*todos)
 		completed := 0
-		for _, todo := range todos {
+
+		for _, todo := range *todos {
 			if todo.Completed {
 				completed++
 			}
 		}
-		remaining := total - completed
 
+		remaining := total - completed
+		progress := 0
+		if total > 0 {
+			progress = (completed * 100) / total
+		}
+
+		// Update text widgets with stats
+		totalText.SetContent(fmt.Sprintf("Total Tasks: %d", total))
+		completedText.SetContent(fmt.Sprintf("Completed: %d", completed))
+		remainingText.SetContent(fmt.Sprintf("Remaining: %d", remaining))
+		progressText.SetContent(fmt.Sprintf("Progress: %d%%", progress))
+
+		// Also update the original statsGrid for compatibility with other functions
 		statsGrid.SetCells([][]string{
 			{fmt.Sprintf("Total Tasks: %d", total)},
 			{fmt.Sprintf("Completed: %d", completed)},
 			{fmt.Sprintf("Remaining: %d", remaining)},
-			{fmt.Sprintf("Progress: %d%%", (completed*100)/max(total, 1))},
+			{fmt.Sprintf("Progress: %d%%", progress)},
 		})
 	}
 
 	// Initial stats update
-	updateStats()
+	updateStatsDisplay(todos)
 
-	// Add interaction to refresh stats
-	statsGrid.SetOnSelect(func(row, col int, item string) {
-		updateStats()
-		statusText.SetContent("Statistics updated")
-	})
+	// Replace updateStats globally
+	updateStats = func(todos *[]TodoItem, statsGrid *widgets.Grid) {
+		updateStatsDisplay(todos)
+	}
 
-	// Add clear completed button
-	clearGrid := widgets.NewGrid()
-	clearGrid.SetCellSize(30, 1)
-	clearGrid.SetPadding(1)
-	clearGrid.SetCells([][]string{{"Clear Completed Tasks"}})
+	// Add a visible spacer before clear button
+	spacer := widgets.NewText("")
 
-	clearGrid.SetOnSelect(func(row, col int, item string) {
+	// Clear completed button - fixed visibility issue
+	clearButton := widgets.NewGrid()
+	clearButton.SetCellSize(25, 1)
+	clearButton.SetPadding(1)
+	clearButton.SetSelectionMode(widgets.SingleSelect) // Ensure it's selectable
+	clearButton.SetCells([][]string{{"Clear Completed Tasks"}})
+
+	// Ensure the grid has proper styling
+	clearButton.SetStyle(tinytui.DefaultGridStyle())                   // Set standard style
+	clearButton.SetSelectedStyle(tinytui.DefaultGridSelectedStyle())   // Set highlighted style
+	clearButton.SetFocusedStyle(tinytui.DefaultGridStyle().Bold(true)) // Set focused style
+
+	// Make sure it's visible
+	clearButton.SetVisible(true)
+
+	// Handle clear button
+	clearButton.SetOnSelect(func(row, col int, item string) {
 		// Filter out completed tasks
 		newTodos := []TodoItem{}
 		removedCount := 0
 
-		for _, todo := range todos {
+		for _, todo := range *todos {
 			if !todo.Completed {
 				newTodos = append(newTodos, todo)
 			} else {
@@ -322,47 +575,36 @@ func createContentArea(app *tinytui.Application) *widgets.Pane {
 			}
 		}
 
-		todos = newTodos
-		updateTodoGrid()
-		updateStats()
+		// Update todos slice
+		*todos = newTodos
 
+		// Update UI
+		updateTodoGridFromOptions(*todos, todoGrid, statsGrid)
+
+		// Update stats display
+		updateStatsDisplay(todos)
+
+		// Update status
 		statusText.SetContent(fmt.Sprintf("Removed %d completed tasks", removedCount))
+
+		// Provide visual feedback
+		clearButton.ClearInteractions()
+		clearButton.SetCellInteracted(row, col, true)
+
+		// Clear button interaction after a short delay
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			app.Dispatch(func(app *tinytui.Application) {
+				clearButton.ClearInteractions()
+			})
+		}()
 	})
 
-	// Add all components to layout
-	contentLayout.AddChild(titleText, 1, 0)
-	contentLayout.AddChild(descText, 2, 0)
-	contentLayout.AddChild(todoGrid, 10, 0)
+	// Add components to layout with explicit sizing
+	statsLayout.AddChild(statsHeader, 1, 0)
+	statsLayout.AddChild(statsDisplay, 4, 0)
+	statsLayout.AddChild(spacer, 1, 0)      // Visible spacer
+	statsLayout.AddChild(clearButton, 2, 0) // Give it 2 rows height for visibility
 
-	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-
-	// Add new todo section
-	contentLayout.AddChild(addTodoHeader, 1, 0)
-	contentLayout.AddChild(addTodoText, 1, 0)
-	contentLayout.AddChild(addOptionsGrid, 6, 0)
-
-	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-
-	// Stats section
-	contentLayout.AddChild(statsHeader, 1, 0)
-	contentLayout.AddChild(statsGrid, 6, 0)
-	contentLayout.AddChild(clearGrid, 3, 0)
-
-	contentLayout.AddChild(widgets.NewText(""), 1, 0) // Spacer
-
-	// Status bar at bottom
-	contentLayout.AddChild(statusText, 0, 1) // Fill remaining space
-
-	// Set the layout as pane's child
-	contentPane.SetChild(contentLayout)
-
-	return contentPane
-}
-
-// max returns the larger of x or y
-func max(x, y int) int {
-	if x > y {
-		return x
-	}
-	return y
+	return statsLayout
 }

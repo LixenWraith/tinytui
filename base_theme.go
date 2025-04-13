@@ -20,12 +20,13 @@ type BaseTheme struct {
 	paneStyle            Style
 	paneBorderStyle      Style
 	paneFocusBorderStyle Style
+	defaultBorderType    BorderType
+	focusedBorderType    BorderType
 
 	// Added fields for new functionality
 	indicatorColor Color // Color for selection indicators
 	defaultPadding int   // Default padding for widgets
 
-	defaultBorderType BorderType
 	defaultCellWidth  int
 	defaultCellHeight int
 }
@@ -102,4 +103,14 @@ func (t *BaseTheme) IndicatorColor() Color {
 // DefaultPadding returns the default padding for widgets
 func (t *BaseTheme) DefaultPadding() int {
 	return t.defaultPadding
+}
+
+// DefaultBorderType returns the default border type for panes
+func (t *BaseTheme) DefaultBorderType() BorderType {
+	return t.defaultBorderType
+}
+
+// FocusedBorderType returns the border type for panes when a child has focus
+func (t *BaseTheme) FocusedBorderType() BorderType {
+	return t.focusedBorderType
 }

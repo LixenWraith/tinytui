@@ -17,6 +17,8 @@ type Application struct {
 	modalRoot     Widget // The widget defining the current modal focus scope (nil if none)
 	previousFocus Widget // Widget focused before modal opened (for returning focus)
 
+	globalKeyBindings map[keyModCombo]func() bool // Map for global application keybindings
+
 	events     chan tcell.Event        // Channel for incoming tcell events
 	actionChan chan func(*Application) // Channel holds functions to execute
 	stop       chan struct{}           // Channel to signal application termination
@@ -36,13 +38,14 @@ type Application struct {
 // NewApplication creates and initializes a new TUI application.
 func NewApplication() *Application {
 	app := &Application{
-		events:         make(chan tcell.Event, 10),
-		actionChan:     make(chan func(*Application), 10),
-		stop:           make(chan struct{}),
-		redraw:         make(chan struct{}, 1),
-		focusableCache: make(map[Widget][]Widget),
-		cacheValid:     false,
-		theme:          GetTheme(),
+		events:            make(chan tcell.Event, 10),
+		actionChan:        make(chan func(*Application), 10),
+		stop:              make(chan struct{}),
+		redraw:            make(chan struct{}, 1),
+		focusableCache:    make(map[Widget][]Widget),
+		cacheValid:        false,
+		theme:             GetTheme(),
+		globalKeyBindings: make(map[keyModCombo]func() bool),
 	}
 	app.themeListener = func(theme Theme) {
 		app.mu.Lock()
@@ -52,6 +55,19 @@ func NewApplication() *Application {
 	}
 	SubscribeThemeChange(app.themeListener)
 	return app
+}
+
+// SetKeybinding registers a global keybind
+func (a *Application) SetKeybinding(key tcell.Key, mod tcell.ModMask, handler func() bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	combo := keyModCombo{
+		Key: key,
+		Mod: mod,
+	}
+
+	a.globalKeyBindings[combo] = handler
 }
 
 // Dispatch sends a function to be executed safely within the main application loop.

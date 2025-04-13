@@ -29,8 +29,9 @@ type Grid struct {
 	selectedCol            int                             // Index of the currently selected column
 	topRow                 int                             // Index of the row displayed at the top
 	leftCol                int                             // Index of the column displayed at the left
-	cellWidth              int                             // Fixed width for each cell (0 for auto - not implemented yet)
-	cellHeight             int                             // Fixed height for each cell (usually 1)
+	cellWidth              int                             // Fixed width for each cell
+	cellHeight             int                             // Fixed height for each cell
+	autoWidth              bool                            // Whether to calculate based on content width
 	padding                int                             // Padding around cell content
 	style                  tinytui.Style                   // Normal style
 	selectedStyle          tinytui.Style                   // Selected, not focused
@@ -57,6 +58,7 @@ func NewGrid() *Grid {
 		leftCol:                0,
 		cellHeight:             tinytui.DefaultCellHeight(),
 		cellWidth:              tinytui.DefaultCellWidth(),
+		autoWidth:              false,                    // Default to fixed width
 		padding:                tinytui.DefaultPadding(), // Use theme's default padding
 		style:                  tinytui.DefaultGridStyle(),
 		selectedStyle:          tinytui.DefaultGridStyle().Dim(true).Underline(true),
@@ -106,8 +108,16 @@ func (g *Grid) SetSelectionMode(mode SelectionMode) *Grid {
 
 // SetCells replaces the grid content. Input is a 2D slice [row][col].
 // Resets selection and scroll position. Assumes a rectangular grid.
+// SetCells replaces the grid content. Input is a 2D slice [row][col].
+// Resets selection and scroll position. Assumes a rectangular grid.
+// Fixed to preserve selection position when content changes.
 func (g *Grid) SetCells(cells [][]string) *Grid {
 	g.mu.Lock()
+
+	// Remember previous selection if it exists
+	previousRow, previousCol := g.selectedRow, g.selectedCol
+	hadPreviousSelection := previousRow >= 0 && previousCol >= 0
+
 	g.cells = cells
 	g.numRows = len(cells)
 	g.numCols = 0
@@ -117,18 +127,40 @@ func (g *Grid) SetCells(cells [][]string) *Grid {
 
 	g.topRow = 0
 	g.leftCol = 0
+
+	// Set initial selection or preserve previous selection if possible
 	if g.numRows > 0 && g.numCols > 0 {
-		g.selectedRow = 0
-		g.selectedCol = 0
+		if hadPreviousSelection &&
+			previousRow < g.numRows && previousCol < g.numCols {
+			// Preserve selection if it's still valid
+			g.selectedRow = previousRow
+			g.selectedCol = previousCol
+		} else {
+			// Otherwise select the first cell
+			g.selectedRow = 0
+			g.selectedCol = 0
+		}
 	} else {
 		g.selectedRow = -1
 		g.selectedCol = -1
 	}
+
 	g.clampIndices()
 	g.mu.Unlock()
 
-	g.triggerOnChange() // Trigger change after initial selection is set
+	g.triggerOnChange() // Trigger change after selection is set
 
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+// SetAutoWidth enables automatic width calculation based on content
+func (g *Grid) SetAutoWidth(auto bool) *Grid {
+	g.mu.Lock()
+	g.autoWidth = auto
+	g.mu.Unlock()
 	if app := g.App(); app != nil {
 		app.QueueRedraw()
 	}
@@ -138,14 +170,15 @@ func (g *Grid) SetCells(cells [][]string) *Grid {
 // SetCellSize sets the fixed width and height for each cell.
 // Height is typically 1 for simple text grids. Width determines spacing.
 func (g *Grid) SetCellSize(width, height int) *Grid {
-	// Use built-in min function (Go 1.21+)
+	// Ensure values are reasonable
 	width = max(1, width)
 	height = max(1, height)
 
 	g.mu.Lock()
 	g.cellWidth = width
 	g.cellHeight = height
-	g.clampIndices() // Re-clamp needed as viewport size relative to cells changes
+	g.autoWidth = false // Setting explicit cell width disables auto-width
+	g.clampIndices()    // Re-clamp needed as viewport size relative to cells changes
 	g.mu.Unlock()
 	if app := g.App(); app != nil {
 		app.QueueRedraw()
@@ -341,15 +374,21 @@ func (g *Grid) clampIndices() {
 
 	// Adjust scroll based on selection and viewport
 	_, _, width, height := g.GetRect() // Use BaseWidget's GetRect
-	if width <= 0 || height <= 0 || g.cellWidth <= 0 || g.cellHeight <= 0 {
+	if width <= 0 || height <= 0 || g.cellHeight <= 0 {
 		// Cannot calculate viewport, ensure scroll is at least 0
 		g.topRow = max(0, g.topRow)
 		g.leftCol = max(0, g.leftCol)
 		return
 	}
 
+	// Calculate effective cell width if auto-width is specified
+	effectiveCellWidth := g.cellWidth
+	if g.autoWidth {
+		effectiveCellWidth = g.calculateCellWidth()
+	}
+
 	visibleRows := max(1, height/g.cellHeight)
-	visibleCols := max(1, width/g.cellWidth)
+	visibleCols := max(1, width/effectiveCellWidth)
 
 	// Adjust scroll only if there's a valid selection
 	if g.selectedRow != -1 { // Check if selection is valid
@@ -412,6 +451,39 @@ func (g *Grid) triggerOnSelect() {
 	}
 }
 
+// calculateCellWidth determines the appropriate cell width based on content
+func (g *Grid) calculateCellWidth() int {
+	// Auto-width: Find the maximum content width plus padding
+	maxWidth := 0
+	indicatorSpace := 0
+	if g.showIndicator {
+		indicatorSpace = 1
+	}
+
+	paddingSpace := g.padding * 2
+
+	// Scan all content to find the widest string
+	for _, row := range g.cells {
+		for _, cell := range row {
+			// Use runewidth to get accurate character width
+			width := runewidth.StringWidth(cell)
+			if width > maxWidth {
+				maxWidth = width
+			}
+		}
+	}
+
+	// Add space for indicator and padding
+	totalWidth := maxWidth + indicatorSpace + paddingSpace
+
+	// Ensure a minimum reasonable width
+	if totalWidth < 5 {
+		totalWidth = 5
+	}
+
+	return totalWidth
+}
+
 // Draw renders the visible portion of the grid.
 // Updated for consistent state display and indicators
 func (g *Grid) Draw(screen tcell.Screen) {
@@ -427,10 +499,17 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	selRow, selCol := g.selectedRow, g.selectedCol
 	topRow, leftCol := g.topRow, g.leftCol
 	cWidth, cHeight := g.cellWidth, g.cellHeight
+	autoWidth := g.autoWidth
 	padding := g.padding
 	isFocused := g.IsFocused()
-	showIndicator := g.showIndicator // Now we use this to reserve space, not just for display
+	showIndicator := g.showIndicator // Used to reserve space, not just for display
 	indicatorChar := g.indicatorChar
+
+	// Calculate effective cell width if auto-width is specified
+	effectiveCellWidth := cWidth
+	if autoWidth {
+		effectiveCellWidth = g.calculateCellWidth()
+	}
 
 	// Base style
 	baseStyle := g.style
@@ -464,7 +543,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 	tinytui.Fill(screen, x, y, width, height, ' ', baseFillStyle)
 
 	visibleRows := height / cHeight
-	visibleCols := width / cWidth
+	visibleCols := width / effectiveCellWidth
 
 	// Draw visible cells
 	for rOffset := 0; rOffset < visibleRows; rOffset++ {
@@ -477,11 +556,11 @@ func (g *Grid) Draw(screen tcell.Screen) {
 				continue // Skip drawing if outside grid data
 			}
 
-			cellX := x + cOffset*cWidth
+			cellX := x + cOffset*effectiveCellWidth
 			cellY := y + rOffset*cHeight
 
 			// Calculate actual cell dimensions considering widget boundaries
-			drawWidth := cWidth
+			drawWidth := effectiveCellWidth
 			drawHeight := cHeight
 			if cellX+drawWidth > x+width {
 				drawWidth = x + width - cellX
@@ -498,7 +577,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 			cellStyle := baseStyle
 
 			// Check if this is the currently selected cell and/or interacted
-			isCurrentCell := (gridRow == selRow && gridCol == selCol)
+			isCurrentCell := gridRow == selRow && gridCol == selCol
 			cellKey := fmt.Sprintf("%d:%d", gridRow, gridCol)
 			isInteracted := interactedCells[cellKey]
 
@@ -521,7 +600,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 			} else if isInteracted {
 				// Not selected but interacted
 				if isFocused {
-					cellStyle = g.interactedStyle.Bold(true) // Add emphasis for focused window
+					cellStyle = g.focusedInteractedStyle
 				} else {
 					cellStyle = g.interactedStyle
 				}
@@ -656,6 +735,7 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 			g.interactedCells[cellKey] = true
 		}
 
+		// Preserve the current selection position by not modifying it
 		g.mu.Unlock()
 		g.triggerOnSelect() // Trigger selection callback
 		if app := g.App(); app != nil {
@@ -708,6 +788,7 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 				g.interactedCells[cellKey] = true
 			}
 
+			// Preserve the current selection position by not modifying it
 			g.mu.Unlock()
 			g.triggerOnSelect() // Trigger selection callback
 			if app := g.App(); app != nil {
@@ -751,4 +832,53 @@ func (g *Grid) HandleEvent(event tcell.Event) bool {
 	// Should not be reached if needsRedraw was true, but unlock just in case
 	g.mu.Unlock()
 	return false
+}
+
+// SetCellInteracted marks a specific cell as interacted or not interacted
+// This allows direct control of the interaction state from outside
+func (g *Grid) SetCellInteracted(row, col int, interacted bool) *Grid {
+	g.mu.Lock()
+	cellKey := fmt.Sprintf("%d:%d", row, col)
+	if interacted {
+		g.interactedCells[cellKey] = true
+	} else {
+		delete(g.interactedCells, cellKey)
+	}
+	g.mu.Unlock()
+
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+// SyncInteractedStates replaces the entire interacted cells map with a new state
+// Useful when you need to synchronize with an external data model
+func (g *Grid) SyncInteractedStates(stateMap map[string]bool) *Grid {
+	g.mu.Lock()
+	g.interactedCells = make(map[string]bool)
+	for k, v := range stateMap {
+		g.interactedCells[k] = v
+	}
+	g.mu.Unlock()
+
+	if app := g.App(); app != nil {
+		app.QueueRedraw()
+	}
+	return g
+}
+
+// GetCells returns the current cells content
+func (g *Grid) GetCells() [][]string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	result := make([][]string, len(g.cells))
+	for i, row := range g.cells {
+		result[i] = make([]string, len(row))
+		copy(result[i], row)
+	}
+
+	return result
 }

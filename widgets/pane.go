@@ -75,9 +75,11 @@ func (p *Pane) ApplyTheme(theme tinytui.Theme) {
 	hasBorder := p.border
 
 	if hasBorder {
-		// Update only the styles, preserve the current border type
+		// Update only the styles, preserve the current border type unless focused
 		p.borderStyle = theme.PaneBorderStyle()
 		p.originalBorderStyle = theme.PaneBorderStyle()
+
+		// Don't update borderType here - that's set by SetBorder and used conditionally during drawing
 	}
 
 	// Update focus border style
@@ -167,58 +169,18 @@ func (p *Pane) Draw(screen tcell.Screen) {
 	if childFocused && borderEnabled {
 		currentBorderStyle = p.focusBorderStyle
 
-		// Use double border when a child is focused
-		// TODO: Add focused border style to theme
-		bType = tinytui.BorderDouble
+		// Get focused border type from app theme
+		if app := p.App(); app != nil {
+			if theme := app.GetTheme(); theme != nil {
+				bType = theme.FocusedBorderType()
+			}
+		}
 	}
 
 	// Calculate content area with proper border handling
 	contentX, contentY, contentWidth, contentHeight := x, y, width, height
 
-	// Special handling for single-line height panes
-	if borderEnabled && height <= 2 {
-		// For extremely small heights, prioritize content over borders
-		// Just draw content without borders for height == 1
-		if height == 1 {
-			// Fill single line with content bg
-			tinytui.Fill(screen, x, y, width, height, ' ', contentStyle)
-
-			// Draw child without borders
-			if childWidget != nil {
-				childWidget.SetRect(x, y, width, height)
-				childWidget.Draw(screen)
-			}
-			return
-		}
-
-		// For height == 2, show content in the single available line (no top/bottom borders)
-		// Draw left/right borders only if width permits
-		tinytui.Fill(screen, x, y, width, height, ' ', contentStyle)
-
-		// Draw side borders if there's enough width
-		if width > 2 && bType != tinytui.BorderNone {
-			// Left border
-			screen.SetContent(x, y, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
-			screen.SetContent(x, y+1, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
-
-			// Right border
-			screen.SetContent(x+width-1, y, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
-			screen.SetContent(x+width-1, y+1, tcell.RuneVLine, nil, currentBorderStyle.ToTcell())
-
-			// Adjust content area
-			contentX = x + 1
-			contentWidth = width - 2
-		}
-
-		// Draw child in remaining space
-		if childWidget != nil && contentWidth > 0 {
-			childWidget.SetRect(contentX, y, contentWidth, height)
-			childWidget.Draw(screen)
-		}
-		return
-	}
-
-	// Normal case - adequate height for full borders
+	// Apply border adjustments if enabled and dimensions are sufficient
 	if borderEnabled && bType != tinytui.BorderNone && width > 1 && height > 1 {
 		contentX++
 		contentY++
@@ -253,6 +215,7 @@ func (p *Pane) Draw(screen tcell.Screen) {
 
 	// Draw Child within content area if there's space
 	if childWidget != nil && contentWidth > 0 && contentHeight > 0 {
+		childWidget.SetRect(contentX, contentY, contentWidth, contentHeight)
 		childWidget.Draw(screen)
 	}
 }

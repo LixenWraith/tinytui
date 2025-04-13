@@ -7,11 +7,11 @@ func NewDefaultTheme() Theme {
 	baseStyle := DefaultStyle
 
 	// Enhance selection visibility
-	selectedStyle := baseStyle.Background(tcell.ColorGray).Foreground(tcell.ColorBlack)
-	interactedStyle := baseStyle.Foreground(tcell.ColorBlue).Bold(true)
+	selectedStyle := baseStyle.Bold(true)
+	interactedStyle := baseStyle.Foreground(tcell.ColorDarkGreen)
 	focusedStyle := baseStyle
-	focusedSelectedStyle := baseStyle.Background(tcell.ColorWhite).Foreground(tcell.ColorBlack).Bold(true)
-	focusedInteractedStyle := baseStyle.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
+	focusedSelectedStyle := baseStyle.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack).Bold(true)
+	focusedInteractedStyle := baseStyle.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
 
 	return &BaseTheme{
 		name:              ThemeDefault,
@@ -30,6 +30,8 @@ func NewDefaultTheme() Theme {
 		paneStyle:            DefaultStyle,
 		paneBorderStyle:      DefaultStyle,
 		paneFocusBorderStyle: DefaultStyle.Foreground(ColorYellow).Bold(true),
+		defaultBorderType:    BorderSingle,
+		focusedBorderType:    BorderSingle,
 
 		// Default dimensions
 		defaultCellWidth:  10,
@@ -92,6 +94,8 @@ func NewTurboTheme() Theme {
 		paneStyle:            baseStyle,
 		paneBorderStyle:      baseStyle.Foreground(borderColor),
 		paneFocusBorderStyle: baseStyle.Foreground(borderFocusColor).Bold(true),
+		defaultBorderType:    BorderSingle,
+		focusedBorderType:    BorderDouble,
 
 		// Default dimensions
 		defaultCellWidth:  10,

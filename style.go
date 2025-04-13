@@ -3,8 +3,6 @@ package tinytui
 
 import "github.com/gdamore/tcell/v2"
 
-// --- Color Abstraction ---
-
 // Color represents a TUI color. It wraps tcell.Color.
 type Color = tcell.Color
 
@@ -43,8 +41,6 @@ const (
 	ColorLightYellow   Color = tcell.ColorLightYellow
 	// Add more named colors as needed
 )
-
-// --- Style Abstraction ---
 
 // Style represents the display style of a cell (foreground, background, attributes).
 // It currently wraps tcell.Style.
@@ -193,8 +189,6 @@ func (s Style) MergeWith(other Style) Style {
 	return result
 }
 
-// --- Border Types ---
-
 // BorderType defines the style of border to draw.
 type BorderType int
 
@@ -204,8 +198,6 @@ const (
 	BorderDouble                   // Double line border (uses tcell.Rune DoubleHLine, DoubleVLine, etc.)
 	BorderSolid                    // Solid block border (uses block elements like █, ▀, ▄)
 )
-
-// --- Helper Functions ---
 
 // ToTcell converts tinytui.Style to tcell.Style for internal use
 // or when direct screen manipulation is needed.
