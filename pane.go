@@ -2,7 +2,7 @@
 package tinytui
 
 import (
-	"log" // Keep for critical errors or temporary debug prints
+	"log" // Keep for critical errors
 	"strconv"
 	"strings"
 
@@ -57,7 +57,7 @@ func (p *Pane) SetChild(child interface{}) {
 	case Component, *Layout, nil:
 		// Valid
 	default:
-		log.Printf("[Pane.SetChild] ERROR: Invalid child type provided to Pane (Title: '%s'): %T", p.title, child)
+		log.Printf("[ERROR tinytui.Pane.SetChild] Invalid child type provided to Pane (Title: '%s'): %T", p.title, child)
 		return
 	}
 
@@ -72,6 +72,7 @@ func (p *Pane) SetChild(child interface{}) {
 
 	p.child = child
 	p.dirty = true
+	p.updateChildRect() // Update child rect when child is set/changed
 }
 
 // SetApplication sets the application this pane belongs to and propagates it.
@@ -97,6 +98,7 @@ func (p *Pane) SetBorder(border Border, style Style) {
 		p.border = border
 		p.borderStyle = style
 		p.dirty = true
+		p.updateChildRect() // Border change affects content area
 	}
 }
 
@@ -139,12 +141,8 @@ func (p *Pane) SetRect(x, y, width, height int) {
 
 // updateChildRect calculates content area and sets child's rect.
 func (p *Pane) updateChildRect() {
-	borderType := p.border
-	// Determine effective border for content calculation
-	if borderType != BorderNone && (p.rect.Width < 3 || p.rect.Height < 3) {
-		borderType = BorderNone
-	}
-	contentX, contentY, contentWidth, contentHeight := p.getContentRectForBorder(borderType)
+	// Calculate content area based on the pane's *own* border setting
+	contentX, contentY, contentWidth, contentHeight := p.getContentRectForBorder(p.border)
 
 	if p.child != nil {
 		if comp, ok := p.child.(Component); ok && comp != nil {
@@ -161,7 +159,8 @@ func (p *Pane) getContentRectForBorder(border Border) (x, y, width, height int) 
 	x, y = rect.X, rect.Y
 	width, height = rect.Width, rect.Height
 
-	if border != BorderNone {
+	// Adjust ONLY if border is present AND there's enough space for it
+	if border != BorderNone && width >= 2 && height >= 2 {
 		x += 1
 		y += 1
 		width -= 2
@@ -177,8 +176,6 @@ func (p *Pane) getContentRectForBorder(border Border) (x, y, width, height int) 
 }
 
 // SetIndex sets the pane's user-facing index (1-10).
-// Called by Layout.SetApplication for the main layout.
-// Use 0 internally for non-indexed panes.
 func (p *Pane) SetIndex(index int) {
 	newIndex := 0
 	if index > 0 && index <= 10 {
@@ -211,31 +208,32 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 
 	// Copy state needed for drawing
 	rect := p.rect
-	border := p.border // Base border type
+	baseBorder := p.border // The border type set on the pane
 	title := p.title
 	index := p.index // Current index (0 if none)
 	showIndexIndicator := p.showIndexIndicator
 	style := p.style
-	borderStyle := p.borderStyle
+	baseBorderStyle := p.borderStyle
 	focusBorderStyle := p.focusBorderStyle
 	child := p.child
 
 	p.dirty = false // Clear dirty flag for this pane itself
 
 	// Determine effective border type (might be None if too small, might change on focus)
-	effectiveBorder := border
-	if effectiveBorder != BorderNone && (rect.Width < 3 || rect.Height < 3) {
+	effectiveBorder := baseBorder
+	if effectiveBorder != BorderNone && (rect.Width < 2 || rect.Height < 2) { // Need 2x2 min for border
 		effectiveBorder = BorderNone
 	}
 
 	// Determine border style and potentially update effectiveBorder based on focus/theme
-	currentBorderStyle := borderStyle
+	currentBorderStyle := baseBorderStyle
 	theme := GetTheme() // Get current theme
 	if isFocused {
 		if theme != nil {
 			focusedThemeBorder := theme.FocusedBorderType()
 			// Only change border type if theme specifies a *different* one for focus
-			if focusedThemeBorder != border && focusedThemeBorder != BorderNone {
+			// and the new type is not None (unless base was already None)
+			if focusedThemeBorder != baseBorder && focusedThemeBorder != BorderNone {
 				effectiveBorder = focusedThemeBorder
 			}
 			currentBorderStyle = theme.PaneFocusBorderStyle() // Use theme's focus style
@@ -245,17 +243,20 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 	} else {
 		if theme != nil {
 			// Ensure we use the theme's default border type if not focused
-			effectiveBorder = theme.DefaultBorderType()
+			defaultThemeBorder := theme.DefaultBorderType()
+			if defaultThemeBorder != baseBorder {
+				effectiveBorder = defaultThemeBorder
+			}
 			currentBorderStyle = theme.PaneBorderStyle()
 		}
 		// If no theme, border/borderStyle remain as set on the pane
 	}
 	// Re-check size constraint with potentially changed effectiveBorder
-	if effectiveBorder != BorderNone && (rect.Width < 3 || rect.Height < 3) {
+	if effectiveBorder != BorderNone && (rect.Width < 2 || rect.Height < 2) {
 		effectiveBorder = BorderNone
 	}
 
-	// Draw background
+	// Draw background for the entire pane area
 	Fill(screen, rect.X, rect.Y, rect.Width, rect.Height, ' ', style)
 
 	// --- Start Border and Index/Title Drawing ---
@@ -268,16 +269,15 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 		// --- Calculate Index Display String ---
 		startX := rect.X + 1 // Position right after the left border column
 
-		// Conditions for showing the actual index number
-		isPotentiallyNavigable := index > 0                        // Has a valid index assigned (1-10)
-		containsFocusable := p.GetFirstFocusableComponent() != nil // Check if navigable
+		isPotentiallyNavigable := index > 0
+		containsFocusable := p.GetFirstFocusableComponent() != nil
 		shouldDisplayIndexNumber := isPotentiallyNavigable && showIndexIndicator && containsFocusable
 
 		if shouldDisplayIndexNumber {
 			indexNumStr := strconv.Itoa(index)
 			if index == 10 {
 				indexNumStr = "0"
-			} // Alt+0 convention
+			}
 			displayChar := indexNumStr
 			if isFocused {
 				displayChar = "#"
@@ -285,7 +285,6 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 			prefix, suffix := "[", "]"
 			indexDisplayString = prefix + displayChar + suffix
 		} else {
-			// Show placeholder if a border exists but index shouldn't be shown
 			var horizontalChar rune
 			switch effectiveBorder {
 			case BorderSingle:
@@ -297,21 +296,32 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 			default:
 				horizontalChar = '-'
 			}
-			indexDisplayString = strings.Repeat(string(horizontalChar), 3)
+			// Ensure placeholder doesn't exceed available width (minus corners)
+			placeHolderWidth := 3
+			if rect.Width-2 < placeHolderWidth {
+				placeHolderWidth = rect.Width - 2
+			}
+			if placeHolderWidth < 0 {
+				placeHolderWidth = 0
+			}
+			indexDisplayString = strings.Repeat(string(horizontalChar), placeHolderWidth)
 		}
 
 		// --- Draw Index String (or placeholder) ---
 		indexDisplayLen := runewidth.StringWidth(indexDisplayString)
-		canDrawIndex := startX+indexDisplayLen <= rect.X+rect.Width-1 && rect.Width > 4
+		// Check if there's space between the left and right border characters
+		canDrawIndex := (startX < rect.X+rect.Width-1) && (indexDisplayLen <= rect.Width-2)
 
-		if canDrawIndex {
+		if canDrawIndex && indexDisplayLen > 0 {
 			DrawText(screen, startX, rect.Y, currentBorderStyle, indexDisplayString)
 		}
 
 		// --- Draw Title ---
 		if title != "" {
-			titleX := startX + indexDisplayLen + 1              // Start after index string + 1 space
-			titleMaxWidth := rect.Width - (titleX - rect.X) - 1 // Max width = Total width - start offset - right border(1)
+			// Title starts after the space reserved for the index string, plus one space padding
+			titleX := startX + indexDisplayLen + 1
+			// Max width accounts for: start pos, right border (1)
+			titleMaxWidth := (rect.X + rect.Width - 1) - titleX
 
 			if titleMaxWidth > 0 {
 				titleText := runewidth.Truncate(title, titleMaxWidth, "…") // Use ellipsis
@@ -326,13 +336,12 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 
 	// Draw child if present
 	if child != nil {
-		// Ensure child rect is updated *before* drawing, in case it wasn't set by SetRect yet
-		// (e.g., if only style changed, SetRect might not have run)
+		// Ensure child rect is up-to-date before drawing
 		if comp, ok := child.(Component); ok && comp != nil {
-			comp.SetRect(contentX, contentY, contentWidth, contentHeight) // Ensure rect is current
+			comp.SetRect(contentX, contentY, contentWidth, contentHeight)
 			comp.Draw(screen)
 		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			layout.SetRect(contentX, contentY, contentWidth, contentHeight) // Ensure rect is current
+			layout.SetRect(contentX, contentY, contentWidth, contentHeight)
 			layout.Draw(screen)
 		}
 	}
@@ -343,13 +352,13 @@ func (p *Pane) IsDirty() bool {
 	if p.dirty {
 		return true
 	}
-	// Check child recursively
 	child := p.child
 	if child != nil {
 		if comp, ok := child.(Component); ok && comp != nil {
 			return comp.IsDirty()
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			return layout.HasDirtyComponents() // Recursive check
+		}
+		if layout, ok := child.(*Layout); ok && layout != nil {
+			return layout.HasDirtyComponents()
 		}
 	}
 	return false
@@ -362,13 +371,14 @@ func (p *Pane) ClearDirtyFlags() {
 	if child != nil {
 		if comp, ok := child.(Component); ok && comp != nil {
 			comp.ClearDirty()
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			layout.ClearAllDirtyFlags() // Recursive clear
+		}
+		if layout, ok := child.(*Layout); ok && layout != nil {
+			layout.ClearAllDirtyFlags()
 		}
 	}
 }
 
-// GetChildComponent returns the pane's child component, or nil if it's not a component.
+// GetChildComponent returns the pane's child component, or nil.
 func (p *Pane) GetChildComponent() Component {
 	if comp, ok := p.child.(Component); ok {
 		return comp
@@ -376,30 +386,12 @@ func (p *Pane) GetChildComponent() Component {
 	return nil
 }
 
-// GetChildLayout returns the pane's child layout, or nil if it's not a layout.
+// GetChildLayout returns the pane's child layout, or nil.
 func (p *Pane) GetChildLayout() *Layout {
 	if layout, ok := p.child.(*Layout); ok {
 		return layout
 	}
 	return nil
-}
-
-// GetAllComponents returns all components within this pane (recursively).
-// Note: Needs a corresponding GetAllComponents in Layout for full recursion.
-func (p *Pane) GetAllComponents() []Component {
-	child := p.child
-	var components []Component
-	if child != nil {
-		if comp, ok := child.(Component); ok && comp != nil {
-			components = append(components, comp)
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			// Assuming Layout needs a GetAllComponents method similar to GetAllFocusableComponents
-			// components = append(components, layout.GetAllComponents()...)
-			// Using focusable as fallback for now:
-			components = append(components, layout.GetAllFocusableComponents()...)
-		}
-	}
-	return components
 }
 
 // GetFocusableComponents returns all focusable components within this pane recursively.
@@ -412,7 +404,6 @@ func (p *Pane) GetFocusableComponents() []Component {
 				focusables = append(focusables, comp)
 			}
 		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			// Delegate recursive search to layout
 			focusables = append(focusables, layout.GetAllFocusableComponents()...)
 		}
 	}
@@ -421,7 +412,7 @@ func (p *Pane) GetFocusableComponents() []Component {
 
 // GetFirstFocusableComponent returns the first focusable component found recursively.
 func (p *Pane) GetFirstFocusableComponent() Component {
-	focusables := p.GetFocusableComponents() // Performs the recursive search
+	focusables := p.GetFocusableComponents()
 	if len(focusables) == 0 {
 		return nil
 	}
@@ -430,9 +421,9 @@ func (p *Pane) GetFirstFocusableComponent() Component {
 
 // Helper function moved from previous response for clarity
 func drawBorderByType(screen tcell.Screen, x, y, width, height int, style Style, borderType Border) {
-	if width < 2 || height < 2 { // Need at least 2x2 to draw corners
+	if width < 2 || height < 2 {
 		return
-	}
+	} // Need at least 2x2 for border drawing
 	switch borderType {
 	case BorderSingle:
 		DrawBox(screen, x, y, width, height, style)
@@ -440,7 +431,6 @@ func drawBorderByType(screen tcell.Screen, x, y, width, height int, style Style,
 		DrawDoubleBox(screen, x, y, width, height, style)
 	case BorderSolid:
 		DrawSolidBox(screen, x, y, width, height, style)
-	case BorderNone:
-		// Do nothing
+	case BorderNone: // Do nothing
 	}
 }
