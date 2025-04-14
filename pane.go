@@ -2,84 +2,138 @@
 package tinytui
 
 import (
-	"log" // Keep for critical errors
 	"strconv"
-	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
 )
 
-// Pane is a container with optional border.
+// Pane acts as a container for a single child (which can be a Component or another Layout).
+// It manages the child's position relative to the pane's border and can draw the border,
+// title, and user-facing index indicator.
 type Pane struct {
-	child              interface{} // Can hold Component or *Layout
-	border             Border
-	title              string
-	index              int // User-facing index (1-10), 0 if unset/nested
-	rect               Rect
-	style              Style
-	borderStyle        Style
-	focusBorderStyle   Style
-	showIndexIndicator bool
-	app                *Application
-	dirty              bool
+	child            interface{}  // Holds Component or *Layout
+	border           Border       // Current border type setting (might be overridden by theme focus rule)
+	title            string       // Text displayed in the top border
+	slotIndex        int          // Internal index (0-9) indicating the slot this pane occupies in its parent Layout. 0 if not set.
+	navIndex         int          // User-facing navigation index (1-10), assigned dynamically. 0 if not navigable.
+	rect             Rect         // Position and size allocated to the pane (including border area)
+	style            Style        // Background style for the pane's content area
+	borderStyle      Style        // Style for the border when unfocused (can be overridden by theme)
+	focusBorderStyle Style        // Style for the border when focused (can be overridden by theme)
+	app              *Application // Reference to the parent application
+	dirty            bool         // Does the pane (border, title) or its child need redrawing?
 }
 
-// NewPane creates a new pane with default settings derived from the current theme.
+// NewPane creates a new pane, initializing styles and border from the current theme.
 func NewPane() *Pane {
-	theme := GetTheme() // Get theme at creation time
-	defaultBorder := BorderSingle
-	defaultBorderStyle := DefaultStyle
-	defaultFocusBorderStyle := DefaultStyle.Foreground(ColorYellow).Bold(true)
-	defaultPaneStyle := DefaultStyle
+	theme := GetTheme()
+	if theme == nil {
+		theme = NewDefaultTheme()
+	} // Fallback
 
-	if theme != nil {
-		defaultBorder = theme.DefaultBorderType()
-		defaultBorderStyle = theme.PaneBorderStyle()
-		defaultFocusBorderStyle = theme.PaneFocusBorderStyle()
-		defaultPaneStyle = theme.PaneStyle()
+	p := &Pane{
+		// Initialize visual properties from the theme
+		border:           theme.DefaultBorderType(),    // Use theme default border initially
+		style:            theme.PaneStyle(),            // Use theme pane background
+		borderStyle:      theme.PaneBorderStyle(),      // Use theme border style
+		focusBorderStyle: theme.PaneFocusBorderStyle(), // Use theme focus border style
+		dirty:            true,                         // Start dirty for initial draw
+		slotIndex:        0,                            // Slot index is assigned by Layout.AddPane
+		navIndex:         0,                            // Navigation index is assigned dynamically
+		// child and app are nil initially
 	}
-
-	return &Pane{
-		border:             defaultBorder,
-		style:              defaultPaneStyle,
-		borderStyle:        defaultBorderStyle,
-		focusBorderStyle:   defaultFocusBorderStyle,
-		showIndexIndicator: true,
-		dirty:              true,
-		index:              0, // Initialize index to 0 (meaning no user-facing index)
-	}
+	return p
 }
 
-// SetChild sets the pane's child (component or layout).
-func (p *Pane) SetChild(child interface{}) {
-	switch child.(type) {
-	case Component, *Layout, nil:
-		// Valid
-	default:
-		log.Printf("[ERROR tinytui.Pane.SetChild] Invalid child type provided to Pane (Title: '%s'): %T", p.title, child)
+// ApplyThemeRecursively applies the theme to the pane itself and its child.
+// This updates the pane's styles based on the theme and propagates the theme down.
+func (p *Pane) ApplyThemeRecursively(theme Theme) {
+	if theme == nil {
 		return
 	}
 
-	// Propagate app reference if pane already has one
-	if p.app != nil {
-		if comp, ok := child.(Component); ok && comp != nil {
-			comp.SetApplication(p.app)
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			layout.SetApplication(p.app)
+	// Apply theme styles to the pane itself
+	p.border = theme.DefaultBorderType() // Update border type from theme's default
+	p.style = theme.PaneStyle()
+	p.borderStyle = theme.PaneBorderStyle()
+	p.focusBorderStyle = theme.PaneFocusBorderStyle()
+	p.dirty = true // Mark dirty as appearance might change
+
+	// Apply theme to the child recursively
+	if p.child != nil {
+		if themedChild, ok := p.child.(ThemedComponent); ok {
+			themedChild.ApplyTheme(theme) // Child implements custom theme handling
+		} else if layoutChild, ok := p.child.(*Layout); ok {
+			layoutChild.ApplyThemeRecursively(theme) // Layout handles its children
+		} else if compChild, ok := p.child.(Component); ok {
+			// If child is just a Component, maybe try setting its application again
+			// so it can potentially re-fetch theme styles if needed? Or rely on redraw.
+			if p.app != nil {
+				compChild.SetApplication(p.app) // Ensure app reference is up-to-date
+			}
+			compChild.MarkDirty() // Mark child dirty as its container theme changed
 		}
 	}
 
-	p.child = child
-	p.dirty = true
-	p.updateChildRect() // Update child rect when child is set/changed
+	p.updateChildRect() // Re-calculate child rect in case border type changed size
 }
 
-// SetApplication sets the application this pane belongs to and propagates it.
+// SetChild sets the pane's content (a Component or another Layout).
+// Validates the child type and propagates application/theme settings.
+func (p *Pane) SetChild(child interface{}) {
+	// Validate child type
+	isValid := false
+	switch child.(type) {
+	case Component, *Layout, nil:
+		isValid = true
+	}
+	if !isValid {
+		// Consider panic or returning an error for invalid child types
+		panic("Invalid child type for Pane: must be Component, *Layout, or nil")
+	}
+
+	// Check if child is actually changing
+	if p.child == child {
+		return
+	}
+	p.child = child
+
+	// Propagate application reference and theme to the new child
+	if p.app != nil {
+		app := p.app                   // Cache app reference
+		currentTheme := app.GetTheme() // Get current theme
+
+		if comp, ok := child.(Component); ok && comp != nil {
+			comp.SetApplication(app)
+			// Apply theme if the component supports it
+			if themedComp, ok := comp.(ThemedComponent); ok {
+				themedComp.ApplyTheme(currentTheme)
+			} else {
+				comp.MarkDirty() // Mark dirty anyway
+			}
+		} else if layout, ok := child.(*Layout); ok && layout != nil {
+			layout.SetApplication(app)
+			// ApplyThemeRecursively is handled within layout.SetApplication now
+			// layout.ApplyThemeRecursively(currentTheme) // Layouts handle recursive application
+		}
+	}
+
+	p.dirty = true
+	p.updateChildRect() // Update child rect based on current border
+
+	// Trigger nav index recalculation if app context exists and layout is set
+	// because the focusability of the pane might have changed.
+	if p.app != nil && p.app.GetLayout() != nil {
+		p.app.Dispatch(&RecalculateNavIndicesCommand{})
+	}
+}
+
+// SetApplication associates the pane with an application instance and propagates it to the child.
 func (p *Pane) SetApplication(app *Application) {
 	if p.app == app {
-		return // No change
-	}
+		return
+	} // No change
 	p.app = app
 
 	// Propagate to existing child
@@ -87,63 +141,75 @@ func (p *Pane) SetApplication(app *Application) {
 		if comp, ok := p.child.(Component); ok && comp != nil {
 			comp.SetApplication(app)
 		} else if layout, ok := p.child.(*Layout); ok && layout != nil {
-			layout.SetApplication(app)
+			layout.SetApplication(app) // Layout handles its own children
 		}
 	}
 }
 
-// SetBorder sets the pane's border type and style.
+// SetBorder allows explicitly setting the pane's default (unfocused) border type and style.
+// Note: This overrides the theme's DefaultBorderType and PaneBorderStyle for this pane.
+// The theme's *focused* border type/style might still apply when focused.
 func (p *Pane) SetBorder(border Border, style Style) {
 	if p.border != border || p.borderStyle != style {
 		p.border = border
 		p.borderStyle = style
 		p.dirty = true
-		p.updateChildRect() // Border change affects content area
+		p.updateChildRect() // Border change affects content area size
 	}
 }
 
-// SetFocusBorderStyle sets the style used for the border when a child has focus.
+// SetFocusBorderStyle allows explicitly setting the focused border style.
+// Note: This overrides the theme's PaneFocusBorderStyle for this pane.
 func (p *Pane) SetFocusBorderStyle(style Style) {
 	if p.focusBorderStyle != style {
 		p.focusBorderStyle = style
+		// Only mark dirty if focused? Or always? Always for simplicity.
 		p.dirty = true
 	}
 }
 
-// SetTitle sets the pane's title.
+// SetTitle sets the text displayed in the top border of the pane.
 func (p *Pane) SetTitle(title string) {
 	if p.title != title {
 		p.title = title
-		p.dirty = true
+		p.dirty = true // Border appearance changes
 	}
 }
 
-// SetStyle sets the pane's background style.
+// SetStyle sets the background style for the pane's content area (inside the border).
+// Note: This overrides the theme's PaneStyle for this specific pane.
 func (p *Pane) SetStyle(style Style) {
 	if p.style != style {
 		p.style = style
-		p.dirty = true
+		p.dirty = true // Background appearance changes
 	}
 }
 
-// SetRect sets the pane's position and size.
+// SetRect sets the pane's outer position and size (including any border area).
+// It recalculates and sets the inner rectangle for the child component/layout.
 func (p *Pane) SetRect(x, y, width, height int) {
 	newRect := Rect{X: x, Y: y, Width: width, Height: height}
 	if p.rect == newRect {
-		return // No change
-	}
+		return
+	} // No change
 	p.rect = newRect
 	p.dirty = true
-
-	// Update child dimensions immediately
-	p.updateChildRect()
+	p.updateChildRect() // Update child dimensions based on new pane size and current border
 }
 
 // updateChildRect calculates content area and sets child's rect.
+// Calls the corrected getContentRectForBorder helper.
 func (p *Pane) updateChildRect() {
-	// Calculate content area based on the pane's *own* border setting
-	contentX, contentY, contentWidth, contentHeight := p.getContentRectForBorder(p.border)
+	// Determine the border type to use for geometry calculation (usually the default)
+	borderForGeometry := p.border
+	if borderForGeometry != BorderNone && (p.rect.Width < 2 || p.rect.Height < 2) {
+		borderForGeometry = BorderNone
+	}
 
+	// Calculate content area using the helper
+	contentX, contentY, contentWidth, contentHeight := p.getContentRectForBorder(borderForGeometry)
+
+	// Set the calculated rectangle for the child
 	if p.child != nil {
 		if comp, ok := p.child.(Component); ok && comp != nil {
 			comp.SetRect(contentX, contentY, contentWidth, contentHeight)
@@ -153,8 +219,10 @@ func (p *Pane) updateChildRect() {
 	}
 }
 
-// getContentRectForBorder calculates the inner content rectangle based on a given border type.
+// getContentRectForBorder calculates the inner content rectangle based on a given
+// border type and the pane's outer rectangle.
 func (p *Pane) getContentRectForBorder(border Border) (x, y, width, height int) {
+	// Use the pane's current rectangle (p.rect)
 	rect := p.rect
 	x, y = rect.X, rect.Y
 	width, height = rect.Width, rect.Height
@@ -175,210 +243,172 @@ func (p *Pane) getContentRectForBorder(border Border) (x, y, width, height int) 
 	return x, y, width, height
 }
 
-// SetIndex sets the pane's user-facing index (1-10).
-func (p *Pane) SetIndex(index int) {
-	newIndex := 0
-	if index > 0 && index <= 10 {
-		newIndex = index
-	}
-	if p.index != newIndex {
-		p.index = newIndex
-		p.dirty = true // Mark dirty as appearance might change
-	}
-}
-
-// GetIndex returns the pane's user-facing index (1-10), or 0 if none.
-func (p *Pane) GetIndex() int {
-	return p.index
-}
-
-// SetShowIndexIndicator sets whether the pane's index should be shown.
-func (p *Pane) SetShowIndexIndicator(show bool) {
-	if p.showIndexIndicator != show {
-		p.showIndexIndicator = show
-		p.dirty = true
-	}
-}
-
-// Draw draws the pane and its child.
-func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
-	if p.rect.Width <= 0 || p.rect.Height <= 0 {
+// Draw renders the pane. Signature changed back.
+func (p *Pane) Draw(screen tcell.Screen, hasFocus bool) {
+	rect := p.rect
+	if rect.Width <= 0 || rect.Height <= 0 {
 		return
 	}
+	p.dirty = false
 
-	// Copy state needed for drawing
-	rect := p.rect
-	baseBorder := p.border // The border type set on the pane
-	title := p.title
-	index := p.index // Current index (0 if none)
-	showIndexIndicator := p.showIndexIndicator
-	style := p.style
-	baseBorderStyle := p.borderStyle
-	focusBorderStyle := p.focusBorderStyle
-	child := p.child
-
-	p.dirty = false // Clear dirty flag for this pane itself
-
-	// Determine effective border type (might be None if too small, might change on focus)
-	effectiveBorder := baseBorder
-	if effectiveBorder != BorderNone && (rect.Width < 2 || rect.Height < 2) { // Need 2x2 min for border
-		effectiveBorder = BorderNone
+	// --- Determine Effective Border and Style --- (Logic mostly unchanged)
+	effectiveBorder := p.border
+	currentBorderStyle := p.borderStyle
+	theme := GetTheme()
+	if theme == nil {
+		theme = NewDefaultTheme()
 	}
-
-	// Determine border style and potentially update effectiveBorder based on focus/theme
-	currentBorderStyle := baseBorderStyle
-	theme := GetTheme() // Get current theme
-	if isFocused {
-		if theme != nil {
-			focusedThemeBorder := theme.FocusedBorderType()
-			// Only change border type if theme specifies a *different* one for focus
-			// and the new type is not None (unless base was already None)
-			if focusedThemeBorder != baseBorder && focusedThemeBorder != BorderNone {
-				effectiveBorder = focusedThemeBorder
-			}
-			currentBorderStyle = theme.PaneFocusBorderStyle() // Use theme's focus style
+	if hasFocus {
+		if p.focusBorderStyle != NewPane().focusBorderStyle {
+			currentBorderStyle = p.focusBorderStyle
 		} else {
-			currentBorderStyle = focusBorderStyle // Fallback focus style
+			currentBorderStyle = theme.PaneFocusBorderStyle()
+		}
+		focusedThemeBorder := theme.FocusedBorderType()
+		if focusedThemeBorder != BorderNone && focusedThemeBorder != p.border {
+			effectiveBorder = focusedThemeBorder
+		} else {
+			effectiveBorder = p.border
 		}
 	} else {
-		if theme != nil {
-			// Ensure we use the theme's default border type if not focused
-			defaultThemeBorder := theme.DefaultBorderType()
-			if defaultThemeBorder != baseBorder {
-				effectiveBorder = defaultThemeBorder
-			}
+		if p.borderStyle == NewPane().borderStyle {
 			currentBorderStyle = theme.PaneBorderStyle()
 		}
-		// If no theme, border/borderStyle remain as set on the pane
+		if p.border == NewPane().border {
+			effectiveBorder = theme.DefaultBorderType()
+		}
 	}
-	// Re-check size constraint with potentially changed effectiveBorder
 	if effectiveBorder != BorderNone && (rect.Width < 2 || rect.Height < 2) {
 		effectiveBorder = BorderNone
 	}
 
-	// Draw background for the entire pane area
-	Fill(screen, rect.X, rect.Y, rect.Width, rect.Height, ' ', style)
+	// --- Draw Background ---
+	Fill(screen, rect.X, rect.Y, rect.Width, rect.Height, ' ', p.style)
 
-	// --- Start Border and Index/Title Drawing ---
-	indexDisplayString := "" // Calculated below
-
+	// --- Draw Border, Title, Index ---
 	if effectiveBorder != BorderNone {
-		// Draw the actual border lines/corners using the determined effective type and style
 		drawBorderByType(screen, rect.X, rect.Y, rect.Width, rect.Height, currentBorderStyle, effectiveBorder)
-
-		// --- Calculate Index Display String ---
-		startX := rect.X + 1 // Position right after the left border column
-
-		isPotentiallyNavigable := index > 0
-		containsFocusable := p.GetFirstFocusableComponent() != nil
-		shouldDisplayIndexNumber := isPotentiallyNavigable && showIndexIndicator && containsFocusable
-
-		if shouldDisplayIndexNumber {
-			indexNumStr := strconv.Itoa(index)
-			if index == 10 {
-				indexNumStr = "0"
-			}
-			displayChar := indexNumStr
-			if isFocused {
-				displayChar = "#"
-			}
-			prefix, suffix := "[", "]"
-			indexDisplayString = prefix + displayChar + suffix
-		} else {
-			var horizontalChar rune
-			switch effectiveBorder {
-			case BorderSingle:
-				horizontalChar = RuneHLine
-			case BorderDouble:
-				horizontalChar = RuneDoubleHLine
-			case BorderSolid:
-				horizontalChar = RuneBlock
-			default:
-				horizontalChar = '-'
-			}
-			// Ensure placeholder doesn't exceed available width (minus corners)
-			placeHolderWidth := 3
-			if rect.Width-2 < placeHolderWidth {
-				placeHolderWidth = rect.Width - 2
-			}
-			if placeHolderWidth < 0 {
-				placeHolderWidth = 0
-			}
-			indexDisplayString = strings.Repeat(string(horizontalChar), placeHolderWidth)
+		titleAreaX := rect.X + 1
+		titleAreaY := rect.Y
+		titleAreaWidth := rect.Width - 2
+		if titleAreaWidth < 0 {
+			titleAreaWidth = 0
 		}
 
-		// --- Draw Index String (or placeholder) ---
-		indexDisplayLen := runewidth.StringWidth(indexDisplayString)
-		// Check if there's space between the left and right border characters
-		canDrawIndex := (startX < rect.X+rect.Width-1) && (indexDisplayLen <= rect.Width-2)
+		// --- REVISED INDEX LOGIC ---
+		indexDisplayString := ""
+		// Display indicator ONLY if navIndex is set (>0) and app setting is enabled
+		shouldDisplayIndexIndicator := p.app != nil && p.app.IsShowPaneIndicesEnabled() && p.navIndex > 0
 
-		if canDrawIndex && indexDisplayLen > 0 {
-			DrawText(screen, startX, rect.Y, currentBorderStyle, indexDisplayString)
-		}
+		indexDisplayLen := 0
+		if shouldDisplayIndexIndicator {
+			if hasFocus {
+				indexDisplayString = "[#]" // Focused indicator
+			} else {
+				indexNumStr := strconv.Itoa(p.navIndex % 10) // Unfocused indicator (0 for 10)
+				indexDisplayString = "[" + indexNumStr + "]"
+			}
+			// Draw if it fits
+			if titleAreaWidth >= runewidth.StringWidth(indexDisplayString) {
+				DrawText(screen, titleAreaX, titleAreaY, currentBorderStyle, indexDisplayString)
+				indexDisplayLen = runewidth.StringWidth(indexDisplayString)
+			}
+		} // If navIndex is 0 or setting disabled, indicator is never drawn.
+		// --- Removed single-pane logic and [ ] placeholder logic ---
 
-		// --- Draw Title ---
-		if title != "" {
-			// Title starts after the space reserved for the index string, plus one space padding
-			titleX := startX + indexDisplayLen + 1
-			// Max width accounts for: start pos, right border (1)
-			titleMaxWidth := (rect.X + rect.Width - 1) - titleX
-
-			if titleMaxWidth > 0 {
-				titleText := runewidth.Truncate(title, titleMaxWidth, "…") // Use ellipsis
-				DrawText(screen, titleX, rect.Y, currentBorderStyle, titleText)
+		// --- Title Drawing (Adjusted) ---
+		if p.title != "" && titleAreaWidth > 0 {
+			titleStartX := titleAreaX
+			availableTitleWidth := titleAreaWidth
+			padding := 1
+			if indexDisplayLen > 0 { // If index *was* drawn
+				titleStartX += indexDisplayLen + padding
+				availableTitleWidth -= (indexDisplayLen + padding)
+			} else { // If index was *not* drawn
+				// Add padding from the left edge only if title exists
+				titleStartX += padding
+				availableTitleWidth -= padding
+			}
+			if availableTitleWidth > 0 {
+				truncatedTitle := runewidth.Truncate(p.title, availableTitleWidth, "…")
+				DrawText(screen, titleStartX, titleAreaY, currentBorderStyle, truncatedTitle)
 			}
 		}
-	}
-	// --- End Border and Index/Title Drawing ---
+	} // --- End Border and Index/Title Drawing ---
 
-	// Calculate content area based on the final effectiveBorder used for drawing
-	contentX, contentY, contentWidth, contentHeight := p.getContentRectForBorder(effectiveBorder)
-
-	// Draw child if present
-	if child != nil {
-		// Ensure child rect is up-to-date before drawing
-		if comp, ok := child.(Component); ok && comp != nil {
-			comp.SetRect(contentX, contentY, contentWidth, contentHeight)
+	// --- Draw Child --- (Logic unchanged)
+	_, _, contentWidth, contentHeight := p.getContentRectForBorder(effectiveBorder)
+	if p.child != nil && contentWidth > 0 && contentHeight > 0 {
+		if comp, ok := p.child.(Component); ok && comp != nil {
 			comp.Draw(screen)
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
-			layout.SetRect(contentX, contentY, contentWidth, contentHeight)
-			layout.Draw(screen)
+		} else if layout, ok := p.child.(*Layout); ok && layout != nil {
+			layout.Draw(screen) // Layout draw doesn't need focus info passed down directly here
 		}
 	}
 }
 
-// IsDirty returns whether the pane or its child needs redrawing.
-func (p *Pane) IsDirty() bool {
-	if p.dirty {
+// ContainsFocus checks recursively if this pane or its child contains the specified focused component.
+func (p *Pane) ContainsFocus(focused Component) bool {
+	if focused == nil {
+		return false
+	}
+	if p.child == nil {
+		return false
+	}
+
+	// Check if the direct child is the focused component
+	if childComp, ok := p.child.(Component); ok && childComp == focused {
 		return true
 	}
-	child := p.child
-	if child != nil {
-		if comp, ok := child.(Component); ok && comp != nil {
-			return comp.IsDirty()
-		}
-		if layout, ok := child.(*Layout); ok && layout != nil {
-			return layout.HasDirtyComponents()
-		}
+	// Check if the child is a layout and recursively check if it contains the focus
+	if childLayout, ok := p.child.(*Layout); ok {
+		return childLayout.ContainsFocus(focused)
 	}
+	// Otherwise, focus is not within this pane's hierarchy
 	return false
 }
 
-// ClearDirtyFlags clears dirty flags for this pane and its children recursively.
+// HasFocusableChild checks if the pane's child (recursively) contains any focusable component.
+// Used by Draw to determine if the index indicator should potentially be shown.
+func (p *Pane) HasFocusableChild() bool {
+	// Use GetFirstFocusableComponent which performs the recursive check efficiently.
+	return p.GetFirstFocusableComponent() != nil
+}
+
+// IsDirty returns true if the pane itself (border, title, style) or its child (recursively) needs redrawing.
+func (p *Pane) IsDirty() bool {
+	if p.dirty {
+		return true
+	} // Pane properties changed
+
+	// Check if child is dirty (recursively)
+	if p.child != nil {
+		if comp, ok := p.child.(Component); ok && comp != nil {
+			return comp.IsDirty()
+		}
+		if layout, ok := p.child.(*Layout); ok && layout != nil {
+			return layout.HasDirtyComponents() // Layout checks its children
+		}
+	}
+	return false // Not dirty and no dirty children
+}
+
+// ClearDirtyFlags clears the dirty flag for this pane and its child (recursively).
+// Called by the layout/application after drawing.
 func (p *Pane) ClearDirtyFlags() {
 	p.dirty = false
-	child := p.child
-	if child != nil {
-		if comp, ok := child.(Component); ok && comp != nil {
+	// Clear child's dirty flag recursively
+	if p.child != nil {
+		if comp, ok := p.child.(Component); ok && comp != nil {
 			comp.ClearDirty()
 		}
-		if layout, ok := child.(*Layout); ok && layout != nil {
-			layout.ClearAllDirtyFlags()
+		if layout, ok := p.child.(*Layout); ok && layout != nil {
+			layout.ClearAllDirtyFlags() // Layout handles its children
 		}
 	}
 }
 
-// GetChildComponent returns the pane's child component, or nil.
+// GetChildComponent returns the pane's child if it's a Component, otherwise nil.
 func (p *Pane) GetChildComponent() Component {
 	if comp, ok := p.child.(Component); ok {
 		return comp
@@ -386,7 +416,7 @@ func (p *Pane) GetChildComponent() Component {
 	return nil
 }
 
-// GetChildLayout returns the pane's child layout, or nil.
+// GetChildLayout returns the pane's child if it's a Layout, otherwise nil.
 func (p *Pane) GetChildLayout() *Layout {
 	if layout, ok := p.child.(*Layout); ok {
 		return layout
@@ -394,36 +424,37 @@ func (p *Pane) GetChildLayout() *Layout {
 	return nil
 }
 
-// GetFocusableComponents returns all focusable components within this pane recursively.
+// GetFocusableComponents returns a slice of all focusable components within this pane's child hierarchy.
+// The order depends on the child type (single component or layout's traversal order).
 func (p *Pane) GetFocusableComponents() []Component {
-	child := p.child
 	var focusables []Component
-	if child != nil {
-		if comp, ok := child.(Component); ok && comp != nil {
+	if p.child != nil {
+		if comp, ok := p.child.(Component); ok && comp != nil {
+			// If the child is a component, check if it's focusable itself
 			if comp.Focusable() {
 				focusables = append(focusables, comp)
 			}
-		} else if layout, ok := child.(*Layout); ok && layout != nil {
+		} else if layout, ok := p.child.(*Layout); ok && layout != nil {
+			// If the child is a layout, delegate to get all its focusable components
 			focusables = append(focusables, layout.GetAllFocusableComponents()...)
 		}
 	}
 	return focusables
 }
 
-// GetFirstFocusableComponent returns the first focusable component found recursively.
+// GetFirstFocusableComponent finds and returns the first focusable component
+// encountered within this pane's child hierarchy (depth-first). Returns nil if none found.
 func (p *Pane) GetFirstFocusableComponent() Component {
+	// Use the slice returned by GetFocusableComponents for simplicity
 	focusables := p.GetFocusableComponents()
 	if len(focusables) == 0 {
 		return nil
 	}
-	return focusables[0]
+	return focusables[0] // Return the first one found
 }
 
-// Helper function moved from previous response for clarity
 func drawBorderByType(screen tcell.Screen, x, y, width, height int, style Style, borderType Border) {
-	if width < 2 || height < 2 {
-		return
-	} // Need at least 2x2 for border drawing
+	// Let the specific Draw functions handle edge cases like 1x1
 	switch borderType {
 	case BorderSingle:
 		DrawBox(screen, x, y, width, height, style)
@@ -431,6 +462,40 @@ func drawBorderByType(screen tcell.Screen, x, y, width, height int, style Style,
 		DrawDoubleBox(screen, x, y, width, height, style)
 	case BorderSolid:
 		DrawSolidBox(screen, x, y, width, height, style)
-	case BorderNone: // Do nothing
+	case BorderNone:
+		// Do nothing
 	}
+}
+
+// setSlotIndex sets the pane's internal slot index (0-9). Called by Layout.
+func (p *Pane) setSlotIndex(index int) {
+	// No clamping needed here, Layout manages valid indices 0-9
+	if p.slotIndex != index {
+		p.slotIndex = index
+		// No need to mark dirty just for slot index change unless drawing depends on it.
+		// p.dirty = true
+	}
+}
+
+// GetSlotIndex returns the pane's internal slot index (0-9), or 0 if not set.
+func (p *Pane) GetSlotIndex() int {
+	return p.slotIndex
+}
+
+// SetNavIndex sets the pane's user-facing navigation index (1-10), or 0 if not navigable.
+// Called dynamically by Layout.assignNavigationIndices.
+func (p *Pane) SetNavIndex(ni int) {
+	newNavIndex := 0
+	if ni > 0 && ni <= 10 {
+		newNavIndex = ni
+	}
+	if p.navIndex != newNavIndex {
+		p.navIndex = newNavIndex
+		p.dirty = true // Mark dirty as border appearance (index indicator) might change
+	}
+}
+
+// GetNavIndex returns the pane's user-facing navigation index (1-10), or 0 if none.
+func (p *Pane) GetNavIndex() int {
+	return p.navIndex
 }

@@ -6,405 +6,471 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// TextInput allows single-line text entry with cursor.
+// TextInput provides a single-line text entry field with cursor navigation,
+// editing capabilities (insert, delete, backspace), optional masking for passwords,
+// and optional maximum length enforcement. It is focusable and interactive.
 type TextInput struct {
 	BaseComponent
-	buffer       []rune
-	cursorPos    int // Rune index within buffer
-	visualOffset int // Rune index of the start of the visible part of buffer
-	style        Style
-	maxLength    int
-	onChange     func(string)
-	onSubmit     func(string)
-	masked       bool // For password input
-	maskRune     rune // Character used for masking
+	buffer       []rune       // Stores the text content as runes for correct indexing.
+	cursorPos    int          // Cursor position as a rune index within the buffer [0, len(buffer)].
+	visualOffset int          // Rune index of the start of the visible portion of the buffer (for horizontal scrolling).
+	style        Style        // Base style for the input field when not focused.
+	focusedStyle Style        // Style when the input field has focus.
+	maxLength    int          // Maximum number of runes allowed (0 for no limit).
+	onChange     func(string) // Callback function triggered when text content changes.
+	onSubmit     func(string) // Callback function triggered when Enter key is pressed.
+	masked       bool         // Display mask characters instead of actual text?
+	maskRune     rune         // Rune to use for masking (e.g., '*').
 }
 
 // NewTextInput creates a new text input component.
+// Initializes styles from the current theme.
 func NewTextInput() *TextInput {
+	theme := GetTheme()
+	if theme == nil {
+		theme = NewDefaultTheme()
+	} // Fallback
+
 	t := &TextInput{
 		BaseComponent: NewBaseComponent(),
 		buffer:        []rune{},
 		cursorPos:     0,
 		visualOffset:  0,
-		style:         DefaultStyle,
-		maxLength:     0, // 0 means no limit
+		style:         theme.TextStyle(),               // Base style from theme
+		focusedStyle:  theme.TextStyle().Reverse(true), // Focused style: typically reverse base
+		maxLength:     0,                               // No limit by default
 		masked:        false,
 		maskRune:      '*',
+		// onChange, onSubmit are nil initially
 	}
+	t.ApplyTheme(theme) // Ensure initial theme application correctly sets styles
 	return t
 }
 
-// SetText sets the text content.
+// ApplyTheme updates the text input's styles based on the provided theme.
+// Implements ThemedComponent.
+func (t *TextInput) ApplyTheme(theme Theme) {
+	if theme == nil {
+		return
+	}
+	newStyle := theme.TextStyle()
+	newFocusedStyle := newStyle.Reverse(true) // Derive focused style from theme's text style
+
+	changed := false
+	if t.style != newStyle {
+		t.style = newStyle
+		changed = true
+	}
+	if t.focusedStyle != newFocusedStyle {
+		t.focusedStyle = newFocusedStyle
+		changed = true
+	}
+	if changed {
+		t.MarkDirty() // Mark dirty only if styles actually changed
+	}
+}
+
+// SetText replaces the current text content with the given string.
+// Enforces maximum length and moves the cursor to the end.
 func (t *TextInput) SetText(text string) {
-	// Convert to runes
 	newBuffer := []rune(text)
 
-	// Apply maxLength if set
+	// Enforce maxLength if set
 	if t.maxLength > 0 && len(newBuffer) > t.maxLength {
 		newBuffer = newBuffer[:t.maxLength]
 	}
 
-	// Only update if content changed
-	if runesEqual(t.buffer, newBuffer) {
+	currentText := string(t.buffer)
+	newText := string(newBuffer)
+
+	// Only update if text actually changed
+	if currentText == newText {
+		// If text is same, ensure cursor is still valid (might be needed if called after external change?)
+		if t.cursorPos > len(t.buffer) {
+			t.cursorPos = len(t.buffer)
+		}
+		t.updateVisualOffset() // Still might need scroll adjustment
 		return
 	}
 
-	oldText := string(t.buffer)
 	t.buffer = newBuffer
-
-	// Ensure cursor position is valid
-	if t.cursorPos > len(t.buffer) {
-		t.cursorPos = len(t.buffer)
-	}
-
-	// Reset visual offset
-	t.updateVisualOffset()
-
+	t.cursorPos = len(t.buffer) // Move cursor to the end
+	t.visualOffset = 0          // Reset scroll
+	t.updateVisualOffset()      // Adjust scroll if new end position requires it
 	t.MarkDirty()
 
-	// Cache values outside lock
-	onChange := t.onChange
-	newText := string(t.buffer)
-
-	// Trigger change handler if set
-	if onChange != nil && oldText != newText {
-		onChange(newText)
+	// Trigger change handler if text content changed
+	if t.onChange != nil {
+		t.onChange(newText)
 	}
 }
 
-// SetContent is an alias for SetText to implement TextUpdater interface.
+// SetContent is an alias for SetText to implement the TextUpdater interface.
 func (t *TextInput) SetContent(text string) {
 	t.SetText(text)
 }
 
-// GetText returns the current text content.
+// GetText returns the current text content as a string.
 func (t *TextInput) GetText() string {
+	// Return empty string if buffer is nil? Should not happen with NewTextInput.
+	if t.buffer == nil {
+		return ""
+	}
 	return string(t.buffer)
 }
 
-// SetStyle sets the component style.
+// SetStyle explicitly sets the base (unfocused) style, overriding the theme.
+// Consider using themes for consistent styling.
 func (t *TextInput) SetStyle(style Style) {
-	t.style = style
-	t.MarkDirty()
+	if t.style != style {
+		t.style = style
+		// Should this also update focusedStyle based on the new base style?
+		// t.focusedStyle = style.Reverse(true)? Let's require explicit SetFocusedStyle.
+		t.MarkDirty()
+	}
 }
 
-// SetMaxLength sets the maximum text length (0 for no limit).
+// SetFocusedStyle explicitly sets the focused style, overriding the theme-derived default.
+func (t *TextInput) SetFocusedStyle(style Style) {
+	if t.focusedStyle != style {
+		t.focusedStyle = style
+		t.MarkDirty()
+	}
+}
+
+// SetMaxLength sets the maximum number of runes allowed in the input.
+// Truncates existing text and adjusts cursor if the new limit is smaller.
+// Setting max to 0 disables the length limit.
 func (t *TextInput) SetMaxLength(max int) {
-	// Don't allow negative values
 	if max < 0 {
 		max = 0
-	}
+	} // Ensure non-negative limit
+
+	if t.maxLength == max {
+		return
+	} // No change
 
 	t.maxLength = max
+	truncated := false
 
-	// Truncate existing content if needed
+	// If current text exceeds new limit, truncate it
 	if max > 0 && len(t.buffer) > max {
-		oldText := string(t.buffer)
 		t.buffer = t.buffer[:max]
-
-		// Ensure cursor position is valid
+		truncated = true
+		// Adjust cursor if it was beyond the new max length
 		if t.cursorPos > max {
 			t.cursorPos = max
 		}
-
-		// Reset visual offset
+		// Truncation might require scroll adjustment
 		t.updateVisualOffset()
-
 		t.MarkDirty()
+	}
 
-		// Trigger change handler if set
-		onChange := t.onChange
-		if onChange != nil {
-			newText := string(t.buffer)
-			if oldText != newText {
-				onChange(newText)
-			}
-			return
-		}
+	// Trigger change handler if text was actually truncated
+	if truncated && t.onChange != nil {
+		t.onChange(string(t.buffer))
 	}
 }
 
-// SetMasked sets whether the input should be masked (for passwords).
+// SetMasked enables or disables password-style masking using the specified rune.
 func (t *TextInput) SetMasked(masked bool, maskRune rune) {
-	if t.masked == masked && (masked == false || t.maskRune == maskRune) {
-		return
+	// Use default mask rune '*' if an invalid one (like 0) is provided
+	if maskRune == 0 {
+		maskRune = '*'
+	}
+
+	// Check if state is actually changing
+	if t.masked == masked && (!masked || t.maskRune == maskRune) {
+		return // No change
 	}
 
 	t.masked = masked
-	if masked {
+	if masked { // Only update maskRune if masking is enabled
 		t.maskRune = maskRune
 	}
 
-	t.MarkDirty()
+	t.MarkDirty() // Appearance changes, needs redraw
 }
 
-// SetOnChange sets the handler for text change events.
+// SetOnChange sets the callback function triggered whenever the text content changes due to user input.
 func (t *TextInput) SetOnChange(handler func(string)) {
 	t.onChange = handler
 }
 
-// SetOnSubmit sets the handler for submit events (Enter key).
+// SetOnSubmit sets the callback function triggered when the Enter key is pressed within the input field.
 func (t *TextInput) SetOnSubmit(handler func(string)) {
 	t.onSubmit = handler
 }
 
-// Focusable returns whether the component can receive focus.
-// TextInput is focusable if visible.
+// Focusable returns true if the component is visible, indicating it can receive input focus.
 func (t *TextInput) Focusable() bool {
 	return t.IsVisible()
 }
 
-// Draw draws the text input component.
+// Draw renders the text input component, including text (masked or not), and requests cursor position.
 func (t *TextInput) Draw(screen tcell.Screen) {
-	// Check visibility
 	if !t.IsVisible() {
 		return
 	}
 
-	// Get component dimensions
 	x, y, width, height := t.GetRect()
+	// TextInput only uses a single line, height is ignored beyond clearing.
 	if width <= 0 || height <= 0 {
 		return
 	}
 
-	// Get current style based on focus state
-	style := t.style
+	// Select style based on focus state
+	currentStyle := t.style
 	if t.IsFocused() {
-		// Use a style that indicates focus
-		style = style.Reverse(true)
+		currentStyle = t.focusedStyle
 	}
 
-	// Clear background
-	Fill(screen, x, y, width, height, ' ', style)
+	// Clear the component area (typically just one line high)
+	Fill(screen, x, y, width, height, ' ', currentStyle)
 
-	// Prepare text for display
-	displayText := t.buffer
+	// Determine text runes to display (apply masking if enabled)
+	displayRunes := t.buffer
 	if t.masked {
-		// Replace with mask character
-		displayText = make([]rune, len(t.buffer))
-		for i := range displayText {
-			displayText[i] = t.maskRune
+		displayRunes = make([]rune, len(t.buffer))
+		for i := range displayRunes {
+			displayRunes[i] = t.maskRune
 		}
 	}
 
-	// Calculate visible portion based on cursor and width
-	visibleText := t.getVisibleText(displayText, width)
-
-	// Calculate cursor position on screen
-	cursorScreenPos := x
-	if t.IsFocused() {
-		cursorScreenPos = x + runewidth.StringWidth(string(visibleText[:t.cursorPos-t.visualOffset]))
-
-		// Request cursor at this position
-		if app := t.App(); app != nil {
-			if cm := app.GetCursorManager(); cm != nil {
-				cm.Request(cursorScreenPos, y)
-			}
-		}
-	}
-
-	// Save displayed text for drawing outside of lock
-	displayString := string(visibleText)
-
-	// Draw the text
-	DrawText(screen, x, y, style, displayString)
-}
-
-// getVisibleText returns the portion of text that should be visible.
-// Must be called with lock held.
-func (t *TextInput) getVisibleText(text []rune, width int) []rune {
-	if len(text) == 0 {
-		return []rune{}
-	}
-
-	// Always ensure cursor is visible by adjusting visualOffset if needed
+	// Ensure visual offset keeps cursor visible before getting visible text
 	t.updateVisualOffset()
 
-	// Start from visualOffset
-	if t.visualOffset >= len(text) {
-		return []rune{}
-	}
+	// Get the portion of text runes that fits within the component width
+	visibleRunes := t.getVisibleRunes(displayRunes, width)
+	visibleText := string(visibleRunes)
 
-	// Determine how much text fits in the available width
-	availWidth := width
-	visibleEnd := t.visualOffset
+	// Draw the visible text onto the screen
+	DrawText(screen, x, y, currentStyle, visibleText)
 
-	for visibleEnd < len(text) {
-		charWidth := runewidth.RuneWidth(text[visibleEnd])
-		if charWidth > availWidth {
-			break
+	// If focused, calculate and request the cursor position
+	if t.IsFocused() {
+		// Calculate cursor screen position (X coordinate) based on the width of runes
+		// *before* the cursor *within the visible portion*.
+		cursorScreenX := x
+		// Find the cursor's index relative to the start of the visible runes
+		cursorIndexInVisible := t.cursorPos - t.visualOffset
+		// Ensure the relative index is within the bounds of the visible runes slice
+		if cursorIndexInVisible >= 0 && cursorIndexInVisible <= len(visibleRunes) {
+			// Calculate width of runes from start of visible portion up to the cursor index
+			cursorScreenX = x + runewidth.StringWidth(string(visibleRunes[:cursorIndexInVisible]))
+		} else if cursorIndexInVisible < 0 {
+			// Cursor is before the visible part (shouldn't happen after updateVisualOffset)
+			cursorScreenX = x // Place at start
+		} else { // cursorIndexInVisible > len(visibleRunes)
+			// Cursor is after the visible part (shouldn't happen)
+			cursorScreenX = x + runewidth.StringWidth(visibleText) // Place at end
 		}
-		availWidth -= charWidth
-		visibleEnd++
-	}
 
-	return text[t.visualOffset:visibleEnd]
+		// Ensure cursor position doesn't exceed component width
+		if cursorScreenX >= x+width {
+			cursorScreenX = x + width - 1
+		}
+		if cursorScreenX < x {
+			cursorScreenX = x
+		}
+
+		// Request cursor manager to show cursor at calculated position
+		if app := t.App(); app != nil {
+			if cm := app.GetCursorManager(); cm != nil {
+				cm.Request(cursorScreenX, y)
+			}
+		}
+	}
 }
 
-// updateVisualOffset ensures cursor is visible by adjusting visualOffset.
-// Must be called with lock held.
-func (t *TextInput) updateVisualOffset() {
-	if t.cursorPos < t.visualOffset {
-		// Cursor is before the visible area, adjust left
-		t.visualOffset = t.cursorPos
-	} else {
-		// Check if cursor would be visible given current visualOffset
-		// Access rect directly since lock is already held
-		width := t.rect.Width
+// getVisibleRunes calculates the slice of runes that should be visible
+// based on the current visualOffset and available component width.
+func (t *TextInput) getVisibleRunes(runes []rune, maxWidth int) []rune {
+	totalRunes := len(runes)
+	if totalRunes == 0 || maxWidth <= 0 || t.visualOffset >= totalRunes {
+		return []rune{} // Nothing to display
+	}
 
-		// Skip calculation if width is not set yet (during initialization)
-		if width <= 0 {
-			t.visualOffset = 0
-			return
+	availableWidth := maxWidth
+	startIndex := t.visualOffset
+	endIndex := startIndex // Exclusive end index
+
+	// Iterate from start index, accumulating width until maxWidth is reached or runes end
+	for endIndex < totalRunes {
+		runeWidth := runewidth.RuneWidth(runes[endIndex])
+		if availableWidth < runeWidth {
+			break // Next rune doesn't fit
 		}
+		availableWidth -= runeWidth
+		endIndex++
+	}
 
-		// Calculate width of text from visualOffset to cursor
-		textWidth := 0
+	// Return the slice from startIndex up to (but not including) endIndex
+	return runes[startIndex:endIndex]
+}
+
+// updateVisualOffset adjusts the visualOffset (horizontal scroll position)
+// to ensure the cursor is always visible within the component's width.
+func (t *TextInput) updateVisualOffset() {
+	// Ensure cursor position is valid first
+	if t.cursorPos < 0 {
+		t.cursorPos = 0
+	}
+	if t.cursorPos > len(t.buffer) {
+		t.cursorPos = len(t.buffer)
+	}
+
+	width := t.rect.Width // Get current component width
+	if width <= 0 {
+		t.visualOffset = 0 // Cannot determine visibility if width is unknown
+		return
+	}
+
+	// --- Check if cursor is outside the current view [visualOffset, visualOffset + width) ---
+
+	// Case 1: Cursor is to the left of the visible area (cursorPos < visualOffset)
+	if t.cursorPos < t.visualOffset {
+		t.visualOffset = t.cursorPos // Scroll left so cursor is the first visible character
+		return
+	}
+
+	// Case 2: Cursor is potentially to the right of the visible area
+	// Calculate the visual width required to display runes from visualOffset up to cursorPos
+	widthToCursor := 0
+	if t.visualOffset <= t.cursorPos && t.visualOffset < len(t.buffer) {
+		// Iterate runes from visualOffset up to (but not including) cursorPos
 		for i := t.visualOffset; i < t.cursorPos; i++ {
-			if i >= len(t.buffer) {
+			if i < len(t.buffer) { // Check buffer bounds
+				widthToCursor += runewidth.RuneWidth(t.buffer[i])
+			} else {
+				break
+			} // Should not happen if cursorPos is valid
+		}
+	}
+
+	// If width needed >= component width, cursor is at or past the right edge, need to scroll right.
+	// We want the cursor to be the *last* fully visible character, or just inside the right edge.
+	if widthToCursor >= width {
+		// Start potential new offset at the cursor position and move leftwards,
+		// accumulating width until we have just enough runes to fill the width.
+		newOffset := t.cursorPos
+		accumulatedWidth := 0
+		for newOffset > 0 {
+			prevRuneIndex := newOffset - 1
+			runeW := runewidth.RuneWidth(t.buffer[prevRuneIndex])
+			// If adding this rune makes it too wide, the current newOffset is correct.
+			if accumulatedWidth+runeW >= width {
 				break
 			}
-			textWidth += runewidth.RuneWidth(t.buffer[i])
+			accumulatedWidth += runeW
+			newOffset-- // Move potential start position left
 		}
 
-		// If cursor is off-screen, adjust visualOffset
-		if textWidth >= width {
-			// Find new visualOffset where cursor would be visible
-			newOffset := t.visualOffset
-			visibleWidth := width
-
-			for newOffset < t.cursorPos {
-				if newOffset >= len(t.buffer) {
-					break
-				}
-
-				charWidth := runewidth.RuneWidth(t.buffer[newOffset])
-				if visibleWidth <= charWidth {
-					break
-				}
-
-				visibleWidth -= charWidth
-				newOffset++
-			}
-
-			t.visualOffset = newOffset
+		// Ensure offset is not negative
+		if newOffset < 0 {
+			newOffset = 0
 		}
+
+		t.visualOffset = newOffset
 	}
+	// Case 3: Cursor is already within the visible area [visualOffset, visualOffset + width)
+	// No change needed in visualOffset.
 }
 
-// HandleEvent handles input events.
+// HandleEvent processes key events for text input manipulation (insert, delete, backspace),
+// cursor movement (arrows, home, end), and submission (Enter).
 func (t *TextInput) HandleEvent(event tcell.Event) bool {
-	// Only handle key events
 	keyEvent, ok := event.(*tcell.EventKey)
 	if !ok {
-		return false
+		return false // Not a key event
 	}
 
-	// Track if content changed
+	textBefore := string(t.buffer) // Store state before modification for onChange check
 	contentChanged := false
+	cursorMoved := false
 
 	switch keyEvent.Key() {
+	// --- Character Input ---
 	case tcell.KeyRune:
-		// Insert character at cursor position
+		// Check max length before inserting rune
 		if t.maxLength > 0 && len(t.buffer) >= t.maxLength {
-			// Max length reached
-			return true
+			return true // Max length reached, consume event but do nothing
 		}
-
-		// Insert rune at cursor position
 		r := keyEvent.Rune()
-		if t.cursorPos == len(t.buffer) {
-			t.buffer = append(t.buffer, r)
-		} else {
-			t.buffer = append(t.buffer[:t.cursorPos], append([]rune{r}, t.buffer[t.cursorPos:]...)...)
-		}
-		t.cursorPos++
+		// Insert rune at cursor position using slice manipulation
+		t.buffer = append(t.buffer[:t.cursorPos], append([]rune{r}, t.buffer[t.cursorPos:]...)...)
+		t.cursorPos++ // Move cursor after inserted rune
 		contentChanged = true
 
-	case tcell.KeyDelete:
-		// Delete character after cursor
-		if t.cursorPos < len(t.buffer) {
+	// --- Deletion ---
+	case tcell.KeyDelete: // Delete character *after* cursor (at cursor index)
+		if t.cursorPos < len(t.buffer) { // Only if cursor is not at the very end
 			t.buffer = append(t.buffer[:t.cursorPos], t.buffer[t.cursorPos+1:]...)
 			contentChanged = true
+			// Cursor position does not change relative to remaining text before it
 		}
-
-	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		// Delete character before cursor
-		if t.cursorPos > 0 {
+	case tcell.KeyBackspace, tcell.KeyBackspace2: // Delete character *before* cursor
+		if t.cursorPos > 0 { // Only if cursor is not at the very beginning
 			t.buffer = append(t.buffer[:t.cursorPos-1], t.buffer[t.cursorPos:]...)
-			t.cursorPos--
+			t.cursorPos-- // Move cursor back
 			contentChanged = true
 		}
 
+	// --- Cursor Movement ---
 	case tcell.KeyLeft:
-		// Move cursor left
 		if t.cursorPos > 0 {
 			t.cursorPos--
-			t.MarkDirty() // Need redraw for cursor movement
+			cursorMoved = true
 		}
-
 	case tcell.KeyRight:
-		// Move cursor right
 		if t.cursorPos < len(t.buffer) {
 			t.cursorPos++
-			t.MarkDirty() // Need redraw for cursor movement
+			cursorMoved = true
 		}
-
-	case tcell.KeyHome:
-		// Move cursor to beginning
+	case tcell.KeyHome, tcell.KeyCtrlA: // Treat Ctrl+A like Home
 		if t.cursorPos != 0 {
 			t.cursorPos = 0
-			t.MarkDirty() // Need redraw for cursor movement
+			cursorMoved = true
 		}
-
-	case tcell.KeyEnd:
-		// Move cursor to end
+	case tcell.KeyEnd, tcell.KeyCtrlE: // Treat Ctrl+E like End
 		if t.cursorPos != len(t.buffer) {
 			t.cursorPos = len(t.buffer)
-			t.MarkDirty() // Need redraw for cursor movement
+			cursorMoved = true
 		}
+	// TODO: Add Ctrl+Left/Right for word navigation? Requires word boundary detection.
+	// TODO: Add Ctrl+U to delete line before cursor? Ctrl+K delete after?
 
+	// --- Submission ---
 	case tcell.KeyEnter:
-		// Submit the content
-		text := string(t.buffer)
-		onSubmit := t.onSubmit
-
-		if onSubmit != nil {
-			onSubmit(text)
+		// Trigger the onSubmit callback if it's set
+		if t.onSubmit != nil {
+			t.onSubmit(string(t.buffer))
 		}
-		return true
+		return true // Event handled (submission)
 
+	// --- Unhandled Keys ---
 	default:
-		// Unhandled key
-		return false
+		// Ignore other keys (like Shift, Alt, Ctrl by themselves, function keys, etc.)
+		return false // Indicate key was not handled by text input
 	}
 
-	if contentChanged {
+	// --- Post-Action Updates (if event was handled) ---
+	if contentChanged || cursorMoved {
+		// Ensure cursor visibility after any change
 		t.updateVisualOffset()
+		// Mark dirty to redraw the text and potentially the cursor position
 		t.MarkDirty()
+	}
 
-		// Trigger onChange handler
-		text := string(t.buffer)
-		onChange := t.onChange
-
-		if onChange != nil {
-			onChange(text)
+	// Trigger onChange callback if content actually changed
+	if contentChanged && t.onChange != nil {
+		newText := string(t.buffer)
+		// Sanity check: ensure text actually differs from before the event
+		if textBefore != newText {
+			t.onChange(newText)
 		}
 	}
 
-	return true
-}
-
-// runesEqual compares two rune slices for equality.
-func runesEqual(a, b []rune) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if a[i] != b[i] {
-			return false
-		}
-	}
+	// If we reached here, the key event was processed (input, deletion, movement)
 	return true
 }

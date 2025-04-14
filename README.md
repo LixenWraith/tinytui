@@ -1,17 +1,21 @@
 # TinyTUI
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/LixenWraith/tinytui.svg)](https://pkg.go.dev/github.com/LixenWraith/tinytui)
-
-TinyTUI is a lightweight terminal UI library for Go applications that focuses on simplicity while providing powerful layout and component capabilities. It provides a component-based architecture for creating interactive terminal user interfaces with minimal dependencies.
+A lightweight Terminal User Interface (TUI) library for Go applications, built on top of [tcell](https://github.com/gdamore/tcell). TinyTUI provides a component-based architecture for building interactive terminal applications with minimal dependencies.
 
 ## Features
 
-- **Lightweight**: Minimal dependencies, focusing on core UI functionality
-- **Flexible Layout System**: Support for horizontal and vertical layouts
-- **Component Architecture**: Text, TextInput, Grid, and other components
-- **Theming Support**: Customizable styling with color and text attributes
-- **Keyboard Navigation**: Built-in support for tab navigation and Alt+number pane selection
-- **Automatic Focus Management**: Intelligent focus handling and navigation
+- **Component-Based Architecture**: Modular design with reusable UI components
+- **Flexible Layout System**: Arrange components using horizontal and vertical layouts with various sizing options
+- **Event Handling**: Process keyboard input, handle focus navigation, and dispatch commands
+- **Theming Support**: Customize colors and styles with built-in themes (Default and Turbo)
+- **Rich Component Library**:
+    - Text display with optional wrapping and alignment
+    - Text input fields with cursor navigation and editing
+    - Grid for data display with selection and interaction
+    - Custom sprite rendering for graphics
+    - Panes with optional borders and titles
+- **Command Pattern**: Decouple UI events from application logic
+- **Focus Management**: Tab navigation and Alt+Number quick access to panes
 
 ## Installation
 
@@ -19,80 +23,60 @@ TinyTUI is a lightweight terminal UI library for Go applications that focuses on
 go get github.com/LixenWraith/tinytui
 ```
 
-TinyTUI requires Go 1.23 or newer.
-
-## Dependencies
-
-TinyTUI has minimal external dependencies:
-
-- [github.com/gdamore/tcell/v2](https://github.com/gdamore/tcell): Terminal handling, event processing, and rendering
-- [github.com/mattn/go-runewidth](https://github.com/mattn/go-runewidth): Unicode width calculation for proper text alignment
-
 ## Quick Start
-
-Here's a minimal application with text input and display:
 
 ```go
 package main
 
 import (
-    "github.com/gdamore/tcell/v2"
-    "github.com/LixenWraith/tinytui"
+	"github.com/LixenWraith/tinytui"
 )
 
 func main() {
-    // Create a new application
-    app := tinytui.NewApplication()
+	// Create application
+	app := tinytui.NewApplication()
 
-    // Create a vertical layout
-    mainLayout := tinytui.NewLayout(tinytui.Vertical)
+	// Create components
+	header := tinytui.NewText("TinyTUI Example")
+	header.SetAlignment(tinytui.AlignTextCenter)
 
-    // Create panes for input and display
-    inputPane := tinytui.NewPane()
-    inputPane.SetTitle("Input")
+	input := tinytui.NewTextInput()
+	input.SetText("Enter text")
 
-    displayPane := tinytui.NewPane()
-    displayPane.SetTitle("Display")
+	button := tinytui.NewGrid()
+	button.SetCells([][]string{{" Submit "}})
+	button.SetCellSize(10, 1)
+	button.SetOnSelect(func(r, c int, i string) {
+		// Handle button click
+	})
 
-    // Create a text input component
-    textInput := tinytui.NewTextInput()
+	// Create panes and set content
+	headerPane := tinytui.NewPane()
+	headerPane.SetChild(header)
 
-    // Create text display component
-    displayText := tinytui.NewText("Input will appear here")
+	inputPane := tinytui.NewPane()
+	inputPane.SetTitle("Input")
+	inputPane.SetChild(input)
 
-    // Set components as pane children
-    inputPane.SetChild(textInput)
-    displayPane.SetChild(displayText)
+	buttonPane := tinytui.NewPane()
+	buttonPane.SetChild(button)
 
-    // Set up handler for text input submission
-    textInput.SetOnSubmit(func(text string) {
-        // Update display text with submitted input
-        displayText.SetContent("You entered: " + text)
-        
-        // Clear the input field
-        textInput.SetText("")
-    })
+	// Create layout and arrange panes
+	layout := tinytui.NewLayout(tinytui.Vertical)
+	layout.AddPane(headerPane, tinytui.Size{FixedSize: 1})
+	layout.AddPane(inputPane, tinytui.Size{Proportion: 1})
+	layout.AddPane(buttonPane, tinytui.Size{FixedSize: 1})
 
-    // Add panes to layout
-    mainLayout.AddPane(inputPane, tinytui.Size{Proportion: 1})
-    mainLayout.AddPane(displayPane, tinytui.Size{Proportion: 1})
+	// Set application layout
+	app.SetLayout(layout)
 
-    // Set the layout as the application's main layout
-    app.SetLayout(mainLayout)
+	// Set initial focus
+	app.Dispatch(&tinytui.FocusCommand{Target: input})
 
-    // Focus the text input component initially
-    app.SetFocus(textInput)
-
-    // Register key handler for quitting with ESC
-    app.RegisterKeyHandler(tcell.KeyEscape, tcell.ModNone, func() bool {
-        app.Stop()
-        return true
-    })
-
-    // Run the application
-    if err := app.Run(); err != nil {
-        panic(err)
-    }
+	// Run application
+	if err := app.Run(); err != nil {
+		panic(err)
+	}
 }
 ```
 
@@ -100,221 +84,231 @@ func main() {
 
 ### Application
 
-The `Application` is the main controller that:
-- Manages the screen
-- Processes events
-- Controls the component hierarchy
-- Handles focus navigation
+The `Application` is the root object that manages the screen, event loop, and component hierarchy. It handles focus management, command dispatch, and rendering.
 
 ```go
 app := tinytui.NewApplication()
-app.SetLayout(mainLayout)
-app.Run()
-```
-
-### Layouts
-
-Layouts organize components on the screen. TinyTUI supports:
-
-- **Horizontal Layout**: Components arranged side by side
-- **Vertical Layout**: Components arranged top to bottom
-
-```go
-// Create a new layout
-layout := tinytui.NewLayout(tinytui.Vertical)
-
-// Add panes to the layout
-layout.AddPane(firstPane, tinytui.Size{Proportion: 2})  // Takes 2/3 of space
-layout.AddPane(secondPane, tinytui.Size{Proportion: 1}) // Takes 1/3 of space
-
-// Or use fixed size
-layout.AddPane(headerPane, tinytui.Size{FixedSize: 3})  // 3 rows tall
-```
-
-### Panes
-
-Panes are containers that can hold components or other layouts:
-
-```go
-// Create a pane with a border and title
-pane := tinytui.NewPane()
-pane.SetTitle("My Pane")
-pane.SetBorder(tinytui.BorderSingle, tinytui.DefaultStyle)
-
-// Add a component to the pane
-pane.SetChild(textComponent)
-
-// Or add a nested layout
-pane.SetChild(nestedLayout)
+app.SetScreenMode(tinytui.ScreenAlternate) // Use alternate screen buffer
+app.SetTheme(tinytui.GetTheme())           // Set theme
+app.SetLayout(mainLayout)                  // Set root layout
+app.Run()                                  // Start event loop
 ```
 
 ### Components
 
-Components are the interactive elements in your UI:
+Components are UI elements that implement the `Component` interface. TinyTUI provides several built-in components:
 
-- **Text**: Display static or wrapping text
-- **TextInput**: Single-line text entry with cursor
-- **Grid**: 2D grid of selectable cells with navigation
+- **Text**: Display non-editable text content
+- **TextInput**: Single-line text entry field
+- **Grid**: 2D grid of selectable and potentially interactive cells
+- **Sprite**: Display character-based graphics
+
+Components share common behavior through the `BaseComponent` struct, which provides default implementations for visibility, focus, and state management.
+
+### Panes and Layouts
+
+Panes are containers that hold a single child (Component or Layout) and provide borders, titles, and navigation indices. Layouts arrange multiple panes in a horizontal or vertical orientation with flexible sizing options.
 
 ```go
-// Text component
-text := tinytui.NewText("Hello, World!")
-text.SetStyle(tinytui.DefaultStyle.Foreground(tinytui.ColorGreen))
+// Create a pane with a border and title
+pane := tinytui.NewPane()
+pane.SetTitle("My Component")
+pane.SetBorder(tinytui.BorderSingle, tinytui.DefaultPaneBorderStyle())
+pane.SetChild(component)
 
-// Text input
-input := tinytui.NewTextInput()
-input.SetMaxLength(100)
-input.SetOnSubmit(func(text string) {
-    // Handle text submission
-})
-
-// Grid
-grid := tinytui.NewGrid()
-grid.SetCells([][]string{
-    {"Option 1", "Value 1"},
-    {"Option 2", "Value 2"},
-})
-grid.SetOnSelect(func(row, col int, item string) {
-    // Handle selection
-})
+// Create a vertical layout with multiple panes
+layout := tinytui.NewLayout(tinytui.Vertical)
+layout.SetGap(1) // Set gap between panes
+layout.AddPane(pane1, tinytui.Size{FixedSize: 3})           // Fixed height of 3
+layout.AddPane(pane2, tinytui.Size{Proportion: 1})          // Proportion of remaining space
+layout.AddPane(pane3, tinytui.Size{FixedSize: 5})           // Fixed height of 5
 ```
 
 ### Event Handling
 
-Events can be handled at the application level or by individual components:
+TinyTUI uses an event-driven architecture for handling user input:
+
+1. **Event Dispatch**: The application dispatches tcell events to components
+2. **Focus Handling**: Focused components get first opportunity to handle events
+3. **Command Pattern**: Components can issue commands to be executed by the application
+4. **Key Binding**: Register handlers for specific keys globally
 
 ```go
-// Application-level key handler
-app.RegisterKeyHandler(tcell.KeyCtrlS, tcell.ModNone, func() bool {
-    // Handle Ctrl+S
+// Add component event handler
+myGrid.SetOnSelect(func(row, col int, item string) {
+    // Handle selection
+})
+
+// Register global key handler
+app.RegisterRuneHandler('q', 0, func() bool {
+    app.Stop()
     return true
 })
 
-// Component event handler
-textInput.SetOnSubmit(func(text string) {
-    // Handle text submission
+// Dispatch a command
+app.Dispatch(&tinytui.FocusCommand{Target: myInput})
+```
+
+### Styling and Theming
+
+TinyTUI provides a theming system for consistent styling across the application:
+
+```go
+// Use built-in themes
+tinytui.SetTheme(tinytui.ThemeTurbo)  // Switch to Turbo theme (blue background)
+app.SetTheme(tinytui.GetTheme())      // Apply to application
+
+// Create custom styles
+style := tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Bold(true)
+myText.SetStyle(style)
+```
+
+## Component Reference
+
+### Text
+
+```go
+text := tinytui.NewText("Hello, World!")
+text.SetContent("New content")              // Update text
+text.SetAlignment(tinytui.AlignTextCenter)  // Set text alignment
+text.SetWrap(true)                          // Enable text wrapping
+text.SetStyle(myStyle)                      // Set text style
+```
+
+### TextInput
+
+```go
+input := tinytui.NewTextInput()
+input.SetText("Initial value")              // Set text content
+input.SetMasked(true, '*')                  // Password masking
+input.SetMaxLength(10)                      // Limit input length
+input.SetOnChange(func(text string) {       // Text change handler
+    // Handle text change
 })
-
-grid.SetOnChange(func(row, col int, item string) {
-    // Handle grid selection change
-})
-```
-
-### Focus Management
-
-TinyTUI manages focus automatically:
-
-- Tab/Shift+Tab to navigate between focusable components
-- Alt+Number to jump to specific panes
-- Application provides explicit focus control
-
-```go
-// Set focus to a component
-app.SetFocus(myTextInput)
-
-// Check if component has focus
-if myComponent.IsFocused() {
-    // Component has focus
-}
-```
-
-### Styling
-
-TinyTUI provides comprehensive styling options:
-
-```go
-// Create a style
-style := tinytui.DefaultStyle.
-    Foreground(tinytui.ColorWhite).
-    Background(tinytui.ColorBlue).
-    Bold(true)
-
-// Apply to a component
-text.SetStyle(style)
-
-// Apply to a pane border
-pane.SetBorder(tinytui.BorderDouble, style)
-```
-
-Style options include:
-- Foreground and background colors
-- Text attributes (bold, italic, underline, reverse, etc.)
-- Border styles (none, single, double, solid)
-
-## Concurrency & Thread Safety
-
-TinyTUI's event-driven architecture ensures thread safety. Use the command pattern to update the UI from goroutines:
-
-```go
-go func() {
-    // Do background work...
-
-    // Update UI safely
-    app.Dispatch(&tinytui.UpdateTextCommand{
-        Target:  statusText,
-        Content: "Task completed!",
-    })
-}()
-```
-
-## Advanced Features
-
-### Working with Sprites
-
-Sprites allow for custom character-based graphics:
-
-```go
-// Create a sprite
-sprite := tinytui.NewSprite([][]tinytui.SpriteCell{
-    {
-        {Rune: '┌', Style: borderStyle},
-        {Rune: '─', Style: borderStyle},
-        {Rune: '┐', Style: borderStyle},
-    },
-    {
-        {Rune: '│', Style: borderStyle},
-        {Rune: ' ', Style: contentStyle},
-        {Rune: '│', Style: borderStyle},
-    },
-    {
-        {Rune: '└', Style: borderStyle},
-        {Rune: '─', Style: borderStyle},
-        {Rune: '┘', Style: borderStyle},
-    },
+input.SetOnSubmit(func(text string) {       // Enter key handler
+    // Handle submission
 })
 ```
 
-### Custom Grid Rendering
-
-Create interactive grids with custom styling:
+### Grid
 
 ```go
 grid := tinytui.NewGrid()
-grid.SetCells([][]string{
-    {"Name", "Value", "Type"},
-    {"config.json", "42.5 KB", "File"},
-    {"docs", "", "Directory"},
+grid.SetCells([][]string{                   // Set grid cell content
+    {"Row 1, Col 1", "Row 1, Col 2"},
+    {"Row 2, Col 1", "Row 2, Col 2"},
 })
+grid.SetCellSize(15, 1)                     // Set cell size
+grid.SetSelectionMode(tinytui.MultiSelect)  // Enable multi-selection
+grid.SetIndicator('>', true)                // Set selection indicator
 grid.SetOnChange(func(row, col int, item string) {
     // Handle selection change
 })
-grid.SetAutoWidth(true)
-grid.SetCellSize(0, 1) // Auto width, 1 line height
+grid.SetOnSelect(func(row, col int, item string) {
+    // Handle cell activation (Enter/Space key)
+})
 ```
 
-## Best Practices
+### Sprite
 
-1. **Layout Structure**: Design your layout hierarchy before implementing
-2. **Focus Management**: Let the application handle focus navigation
-3. **Event Handling**: Use component-specific events when possible
-4. **Styling**: Use consistent styling across your application
-5. **Error Handling**: Always check errors returned by `app.Run()`
+```go
+sprite := tinytui.NewSprite(nil)
+sprite.Resize(10, 5)                         // Set sprite dimensions
+sprite.SetCellsFromStrings([]string{         // Set sprite content
+    "╔════╗",
+    "║ICON║",
+    "╚════╝",
+}, myStyle)
+```
+
+## Layout System
+
+TinyTUI's layout system arranges panes in horizontal or vertical orientations with flexible sizing:
+
+- **Fixed Size**: Allocate a specific number of rows or columns
+- **Proportional**: Allocate a proportion of the remaining space
+- **Gap**: Set spacing between panes
+- **Alignment**: Control alignment along main and cross axes
+
+```go
+// Create a horizontal layout with different sizing options
+layout := tinytui.NewLayout(tinytui.Horizontal)
+layout.SetGap(1)
+layout.SetMainAxisAlignment(tinytui.AlignCenter)
+layout.SetCrossAxisAlignment(tinytui.AlignStretch)
+layout.AddPane(pane1, tinytui.Size{FixedSize: 20})         // Fixed width of 20
+layout.AddPane(pane2, tinytui.Size{Proportion: 2})         // 2/3 of remaining width
+layout.AddPane(pane3, tinytui.Size{Proportion: 1})         // 1/3 of remaining width
+```
+
+## Advanced Usage
+
+### Navigation Indices
+
+Panes can be assigned navigation indices (1-10) to allow quick access with Alt+Number keys:
+
+```go
+// Navigation indices are automatically assigned to focusable panes
+app.SetShowPaneIndices(true)  // Show indices in pane borders
+```
+
+### Command Pattern
+
+Commands allow decoupling UI events from application logic:
+
+```go
+// Create a custom command
+type MyCommand struct {
+    Param string
+}
+
+func (c *MyCommand) Execute(app *Application) {
+    // Command implementation
+}
+
+// Dispatch the command
+app.Dispatch(&MyCommand{Param: "value"})
+```
+
+### Custom Components
+
+Create custom components by implementing the `Component` interface or embedding `BaseComponent`:
+
+```go
+type MyComponent struct {
+    tinytui.BaseComponent
+    // Custom fields
+}
+
+func NewMyComponent() *MyComponent {
+    return &MyComponent{
+        BaseComponent: tinytui.NewBaseComponent(),
+    }
+}
+
+// Implement Component interface methods
+func (m *MyComponent) Draw(screen tcell.Screen) {
+    // Drawing logic
+}
+
+func (m *MyComponent) HandleEvent(event tcell.Event) bool {
+    // Event handling logic
+    return false
+}
+```
+
+## Example Programs
+
+The package includes two example programs demonstrating various features:
+
+1. `main.go`: A comprehensive demo showcasing layouts, themes, input handling, and component interactions
+2. `main (1).go`: A focused example demonstrating navigation and component indexing
+
+## Dependencies
+
+- [github.com/gdamore/tcell/v2](https://github.com/gdamore/tcell): Terminal cell handling
+- [github.com/mattn/go-runewidth](https://github.com/mattn/go-runewidth): Proper handling of wide characters
 
 ## License
 
 BSD-3
-
-## Dependencies
-
-- [tcell](https://github.com/gdamore/tcell) - Terminal handling foundation
-- [go-runewidth](https://github.com/mattn/go-runewidth) - Unicode width calculation

@@ -2,6 +2,7 @@
 package tinytui
 
 import (
+	"fmt" // Import fmt for error formatting
 	"github.com/gdamore/tcell/v2"
 	"os"
 	"os/signal"
@@ -9,7 +10,7 @@ import (
 	"time"
 )
 
-// Application manages the main event loop and screen
+// Application manages the screen, event loop, layout, focus, and drawing.
 type Application struct {
 	screen    tcell.Screen
 	layout    *Layout
@@ -21,8 +22,8 @@ type Application struct {
 	// Event management
 	eventChan  chan tcell.Event
 	cmdChan    chan Command
-	redrawChan chan struct{}
-	stopChan   chan struct{}
+	redrawChan chan struct{} // Buffered channel (size 1) for redraw requests
+	stopChan   chan struct{} // Closed to signal application stop
 
 	// Configuration
 	theme             Theme
@@ -31,296 +32,366 @@ type Application struct {
 	clearScreenOnExit bool
 
 	// Keybindings
-	keyHandlers  map[KeyModCombo]KeyHandler
-	runeHandlers []func(*tcell.EventKey) bool
+	keyHandlers  map[KeyModCombo]KeyHandler   // Handlers for specific key+modifier combos
+	runeHandlers []func(*tcell.EventKey) bool // Handlers specifically for rune inputs (checked in order)
 
 	// Performance
-	maxFPS     int
-	frameTimer *time.Ticker
+	maxFPS     int          // Maximum redraw rate
+	frameTimer *time.Ticker // Ticker for enforcing maxFPS redraw checks
 }
 
 // NewApplication creates a new application with default settings.
+// Initializes the theme from the current global theme.
 func NewApplication() *Application {
+	// Ensure a theme is available globally
+	if GetTheme() == nil {
+		// This might happen if NewApplication is called before package init completes
+		// or if no themes were registered. Initialize default themes here as a safeguard.
+		RegisterTheme(NewDefaultTheme())
+		RegisterTheme(NewTurboTheme())
+		SetTheme(ThemeDefault)
+	}
+
 	app := &Application{
-		eventChan:         make(chan tcell.Event, 20),
-		cmdChan:           make(chan Command, 20),
-		redrawChan:        make(chan struct{}, 1), // Buffer of 1 to avoid blocking
+		eventChan:         make(chan tcell.Event, 20), // Buffer for incoming tcell events
+		cmdChan:           make(chan Command, 20),     // Buffer for internal commands
+		redrawChan:        make(chan struct{}, 1),     // Buffer of 1 to coalesce redraw requests
 		stopChan:          make(chan struct{}),
 		keyHandlers:       make(map[KeyModCombo]KeyHandler),
 		runeHandlers:      make([]func(*tcell.EventKey) bool, 0),
 		showPaneIndices:   true,
 		screenMode:        ScreenNormal,
 		clearScreenOnExit: true,
-		maxFPS:            60,
+		theme:             GetTheme(), // Initialize with the globally set theme
+		maxFPS:            60,         // Default FPS
 	}
 	return app
 }
 
-// SetTheme sets the application theme.
+// SetTheme sets the application theme and notifies components recursively.
 func (app *Application) SetTheme(theme Theme) {
-	app.theme = theme
-
-	// Notify any themed components (minimal implementation for future expansion)
-	if app.layout != nil {
-		app.notifyThemeChange(theme)
+	if theme == nil || app.theme == theme {
+		return // Ignore nil themes or no change
 	}
 
+	app.theme = theme
+
+	// Notify components about the theme change recursively
+	app.notifyThemeChange(theme)
+
+	// Ensure a redraw happens to reflect the new theme
 	app.QueueRedraw()
 }
 
-// notifyThemeChange notifies components implementing ThemedComponent about theme changes.
-// This is a minimal implementation that will be expanded in future versions.
-// Currently, this provides a foundation for component-specific theme handling.
+// notifyThemeChange propagates the theme change throughout the component tree.
 func (app *Application) notifyThemeChange(theme Theme) {
-	// This implementation is intentionally minimal as the ThemedComponent
-	// interface is not fully utilized in the current version.
-	// Future versions will have more sophisticated theme propagation.
-	if app.layout == nil {
-		return
-	}
-
-	// Only check the focused component as a proof of concept
-	if focused := app.GetFocusedComponent(); focused != nil {
-		if themed, ok := focused.(ThemedComponent); ok {
-			themed.ApplyTheme(theme)
-		}
+	if app.layout != nil {
+		// Start recursive theme application from the root layout
+		app.layout.ApplyThemeRecursively(theme)
 	}
 }
 
-// GetTheme returns the current theme.
+// GetTheme returns the application's current theme.
+// It returns the theme specifically set on the Application instance.
 func (app *Application) GetTheme() Theme {
+	// Return the app's specific theme instance. It's initialized
+	// from the global theme in NewApplication but can be changed per-app.
+	if app.theme == nil {
+		// Fallback if somehow theme becomes nil after initialization
+		app.theme = GetTheme()
+		if app.theme == nil {
+			app.theme = NewDefaultTheme()
+		}
+	}
 	return app.theme
 }
 
-// SetLayout sets the application layout.
+// SetLayout sets the application's root layout.
+// Associates the layout, applies theme, and relies on layout.SetApplication
+// to trigger the initial navigation index assignment.
 func (app *Application) SetLayout(layout *Layout) {
 	app.layout = layout
-
 	if layout != nil {
+		// Associate layout with app (this calls layout.SetApplication which
+		// should now trigger assignNavigationIndices if it's the root layout)
 		layout.SetApplication(app)
-	}
 
+		// Apply theme (might be redundant if SetApplication handles it fully, but safe)
+		currentTheme := app.GetTheme()
+		if currentTheme != nil {
+			layout.ApplyThemeRecursively(currentTheme)
+		}
+	}
 	app.QueueRedraw()
 }
 
-// GetLayout returns the application's layout.
+// GetLayout returns the application's root layout.
 func (app *Application) GetLayout() *Layout {
 	return app.layout
 }
 
-// SetShowPaneIndices sets whether pane indices should be shown.
+// SetShowPaneIndices sets whether pane indices (Alt+Number hints) should be shown in pane borders.
 func (app *Application) SetShowPaneIndices(show bool) {
-	app.showPaneIndices = show
-	app.QueueRedraw()
+	if app.showPaneIndices != show {
+		app.showPaneIndices = show
+		// Propagate this setting to panes? Or let panes check app setting during draw?
+		// Let Panes check app.showPaneIndices during Draw.
+		app.QueueRedraw()
+	}
 }
 
-// SetScreenMode sets the screen mode.
+// IsShowPaneIndicesEnabled returns whether pane indices should be shown.
+// Used by Pane during drawing.
+func (app *Application) IsShowPaneIndicesEnabled() bool {
+	return app.showPaneIndices
+}
+
+// SetScreenMode sets the desired screen mode (Normal, Fullscreen, Alternate).
 func (app *Application) SetScreenMode(mode ScreenMode) {
+	if app.screenMode == mode {
+		return
+	}
 	app.screenMode = mode
 
-	// Apply screen mode if screen is initialized
+	// Apply screen mode immediately if screen is already initialized
 	if app.screen != nil {
-		switch mode {
-		case ScreenFullscreen:
-			app.screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack))
-			app.screen.Clear()
-		case ScreenAlternate:
-			// tcell automatically uses alternate screen buffer
-		case ScreenNormal:
-			// Default behavior
-		}
+		app.applyScreenMode()
+		app.QueueRedraw() // Redraw might be needed after mode change
 	}
-
-	app.QueueRedraw()
 }
 
-// SetClearScreenOnExit sets whether the screen should be cleared on exit.
+// SetClearScreenOnExit sets whether the screen should be cleared when the application exits.
 func (app *Application) SetClearScreenOnExit(clear bool) {
 	app.clearScreenOnExit = clear
 }
 
 // SetMaxFPS sets the maximum frames per second for redraws.
+// Affects how often dirty component checks and redraws occur via the frame timer.
 func (app *Application) SetMaxFPS(fps int) {
 	if fps <= 0 {
 		fps = 60 // Default to 60 FPS if given invalid value
 	}
+	if app.maxFPS == fps {
+		return
+	}
 
 	app.maxFPS = fps
+
+	// If running, reset the frame timer ticker
+	if app.frameTimer != nil {
+		app.frameTimer.Stop()
+		frameDelay := time.Second / time.Duration(app.maxFPS)
+		app.frameTimer.Reset(frameDelay) // Use Reset for existing ticker
+	}
 }
 
-// Run initializes the screen and starts the main event loop.
+// Run initializes the screen, starts the event loop, and handles drawing and events.
+// Returns an error if initialization fails.
 func (app *Application) Run() error {
 	var err error
 
-	// Initialize screen
+	// Initialize screen if not already done
 	if app.screen == nil {
 		app.screen, err = tcell.NewScreen()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create screen: %w", err)
 		}
+
+		// Enable mouse events? Consider adding an option.
+		// if err = app.screen.EnableMouse(); err != nil {
+		// 	 return fmt.Errorf("failed to enable mouse: %w", err)
+		// }
 
 		if err = app.screen.Init(); err != nil {
-			return err
+			// Attempt cleanup before returning error
+			// app.screen.Fini() // Fini might panic if Init failed partially
+			return fmt.Errorf("failed to initialize screen: %w", err)
 		}
 
-		// Apply screen mode
+		// Apply the configured screen mode
 		app.applyScreenMode()
 	}
 
 	// Initialize cursor manager
+	// TODO: Allow configuring blink rate via Application option
 	app.cursorMgr = NewCursorManager(app, app.screen, 500*time.Millisecond)
 
-	// Set up frame timer
+	// Set up frame timer for max FPS control
 	frameDelay := time.Second / time.Duration(app.maxFPS)
 	app.frameTimer = time.NewTicker(frameDelay)
+	defer app.frameTimer.Stop() // Ensure timer stops on exit
 
-	// Start event polling
-	go app.pollEvents()
+	// Start event polling in a separate goroutine
+	eventPollDone := make(chan struct{})
+	go func() {
+		defer close(eventPollDone)
+		app.pollEvents()
+	}()
 
-	// Set up signal handling for Ctrl+C
+	// Set up signal handling for graceful shutdown (Ctrl+C, SIGTERM)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signalHandlingDone := make(chan struct{})
 	go func() {
+		defer close(signalHandlingDone)
 		select {
 		case <-sigChan:
-			// Force application to stop when Ctrl+C is pressed
-			app.Stop()
+			app.Stop() // Request application stop on signal
 		case <-app.stopChan:
-			// Stop channel was closed elsewhere, just return
+			// Application is stopping normally, just exit goroutine
 			return
 		}
 	}()
 
-	// Initial redraw
+	// Initial redraw to show the UI
 	app.QueueRedraw()
 
-	// Main event loop
+	// --- Main event loop ---
+	defer app.shutdown() // Ensure shutdown runs even if loop exits unexpectedly
+
 	for {
 		select {
 		case <-app.stopChan:
-			return app.shutdown()
+			// Stop signal received, exit loop (shutdown handled by defer)
+			// Wait for signal handler goroutine to finish?
+			<-signalHandlingDone
+			// Wait for event polling to finish? It checks stopChan too.
+			<-eventPollDone
+			return nil // Normal exit
 
 		case ev, ok := <-app.eventChan:
 			if !ok {
-				// Channel closed, exit
-				return app.shutdown()
+				// Event channel closed (likely due to pollEvents stopping after screen error/finalize)
+				return fmt.Errorf("event channel closed unexpectedly") // Indicate error exit
 			}
+			// Process the received terminal event
 			app.ProcessEvent(ev)
 
 		case cmd := <-app.cmdChan:
+			// Execute command received via Dispatch
 			cmd.Execute(app)
 
 		case <-app.redrawChan:
+			// Redraw request received (coalesced)
 			app.draw()
 
 		case <-app.frameTimer.C:
-			// Check if any components need redrawing
-			needsRedraw := app.checkDirtyComponents()
-			if needsRedraw {
-				app.draw()
+			// Frame tick: Check if any component marked itself as dirty
+			if app.checkDirtyComponents() {
+				app.draw() // Draw if components are dirty
 			}
 		}
 	}
 }
 
-// applyScreenMode applies the current screen mode to the screen.
+// applyScreenMode applies the current screen mode setting to the screen.
 func (app *Application) applyScreenMode() {
+	if app.screen == nil {
+		return
+	}
 	switch app.screenMode {
 	case ScreenFullscreen:
+		// Best effort: clear and set a common background. Actual fullscreen depends on terminal.
 		app.screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack))
 		app.screen.Clear()
+		app.screen.Sync() // Ensure changes are visible
 	case ScreenAlternate:
-		// tcell automatically uses alternate screen buffer
+		// tcell handles enabling the alternate screen buffer automatically on Init()
+		// if the terminal supports it. No explicit action needed here after Init.
+		// We might need to ensure styles are reset if switching *to* this mode.
+		app.screen.SetStyle(tcell.StyleDefault) // Reset style
+		app.screen.Sync()
 	case ScreenNormal:
-		// Default behavior
+		// If switching from Alternate, tcell handles restoring on Fini().
+		// Reset style to default terminal style.
+		app.screen.SetStyle(tcell.StyleDefault) // Reset style
+		app.screen.Sync()
 	}
 }
 
-// pollEvents goroutine polls for terminal events and sends them to the event channel.
+// pollEvents polls for terminal events and sends them to the event channel.
+// Runs in its own goroutine, exits when stopChan is closed.
 func (app *Application) pollEvents() {
-	// Defer recover to prevent panic if the channel is closed unexpectedly
-	// TODO: Remove after debugging
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		// Just log the panic or handle it gracefully
-	// 		// This prevents the "close of closed channel" panic from propagating
-	// 	}
-	// }()
-	//
-	// Main event loop
 	for {
+		// Check stop signal *before* polling to allow faster exit
+		select {
+		case <-app.stopChan:
+			return // Application stopping
+		default:
+			// Continue polling
+		}
+
 		ev := app.screen.PollEvent()
 		if ev == nil {
-			// Screen was finalized, stop the application
+			// Screen was finalized or polling failed critically.
+			// Signal the app to stop, if not already stopping.
+			app.Stop()
 			return
 		}
 
+		// Send event to main loop, or return if stopping
 		select {
 		case app.eventChan <- ev:
-			// Event sent successfully
+			// Event successfully sent
 		case <-app.stopChan:
-			// Application is stopping
+			// Application is stopping, terminate event polling
 			return
 		}
 	}
 }
 
-// checkDirtyComponents checks if any components need redrawing.
+// checkDirtyComponents checks if any component within the layout needs redrawing.
 func (app *Application) checkDirtyComponents() bool {
-	layout := app.layout
-
-	if layout == nil {
-		return false
+	if app.layout == nil {
+		return false // Nothing to check
 	}
-
+	// Delegate check to the layout, which checks recursively
 	return app.layout.HasDirtyComponents()
 }
 
-// draw renders the current state to the screen.
+// draw renders the current UI state to the screen.
 func (app *Application) draw() {
 	if app.screen == nil || app.layout == nil {
-		return
+		return // Cannot draw without screen or layout
 	}
 
-	// First, safely check if we can draw
-	screen := app.screen
-	layout := app.layout
-	cursorMgr := app.cursorMgr
-
-	// Reset cursor request for this frame - lock-free operation
-	if cursorMgr != nil {
-		cursorMgr.ResetForFrame()
+	// Reset cursor request state for this frame
+	if app.cursorMgr != nil {
+		app.cursorMgr.ResetForFrame()
 	}
 
-	// Get screen dimensions - lock-free operation
-	width, height := screen.Size()
+	// Hide cursor temporarily during draw operations to avoid flicker
+	app.screen.HideCursor()
 
-	// Set layout size - this might acquire layout lock
-	layout.SetRect(0, 0, width, height)
+	// Get current screen dimensions
+	width, height := app.screen.Size()
 
-	// Draw layout (which will draw all panes and components)
-	layout.Draw(screen)
+	// Update layout dimensions (triggers recalculation if size changed)
+	app.layout.SetRect(0, 0, width, height)
 
-	// Draw cursor (if requested by a TextInput component)
-	if cursorMgr != nil {
-		cursorMgr.Draw()
+	// Draw the layout (which recursively draws panes and components)
+	app.layout.Draw(app.screen)
+
+	// Draw the cursor if requested by a component (e.g., TextInput) after components
+	if app.cursorMgr != nil {
+		app.cursorMgr.Draw() // This will call ShowCursor or HideCursor appropriately
 	}
 
-	// Show the screen - lock-free operation
-	screen.Show()
+	// Show the updated screen buffer
+	app.screen.Show()
 
-	// Clear dirty flags after successful draw
-	layout.ClearAllDirtyFlags()
+	// Clear dirty flags recursively after a successful draw
+	// Do this *after* screen.Show() to ensure flags are only cleared on success.
+	app.layout.ClearAllDirtyFlags()
 }
 
-// shutdown cleans up resources and returns the terminal to its original state.
+// shutdown cleans up resources and restores the terminal. Called on normal exit.
 func (app *Application) shutdown() error {
-	// Stop timers
+	// Stop timers and managers first
 	if app.frameTimer != nil {
 		app.frameTimer.Stop()
 		app.frameTimer = nil
 	}
-
 	if app.cursorMgr != nil {
 		app.cursorMgr.Stop()
 		app.cursorMgr = nil
@@ -328,205 +399,322 @@ func (app *Application) shutdown() error {
 
 	// Clean up screen
 	if app.screen != nil {
-		// Always hide cursor when exiting
+		// Ensure cursor is hidden (though cursorMgr.Stop might do this)
 		app.screen.HideCursor()
+
+		// Disable mouse?
+		// app.screen.DisableMouse()
 
 		if app.clearScreenOnExit {
 			app.screen.Clear()
-			app.screen.Sync()
+			app.screen.Sync() // Ensure clear is displayed
 		}
 
-		// Ensure the terminal is properly restored
+		// Restore terminal state (important!)
 		app.screen.Fini()
+		app.screen = nil // Prevent further use
 	}
-	app.screen = nil
 
-	return nil
+	// Channels will be implicitly handled as goroutines exit due to stopChan closing
+
+	return nil // Indicate successful shutdown
 }
 
-// Stop signals the application to stop.
+// Stop signals the application to gracefully terminate the main loop. Idempotent.
 func (app *Application) Stop() {
 	select {
 	case <-app.stopChan:
-		// Already stopped
+		// Already stopping or stopped
 		return
 	default:
+		// Close stopChan to signal all loops and goroutines
 		close(app.stopChan)
 	}
 }
 
-// QueueRedraw requests a redraw on the next frame.
+// QueueRedraw requests a redraw on the next cycle of the event loop.
+// It's buffered (size 1), so multiple calls between draw cycles result in only one redraw.
 func (app *Application) QueueRedraw() {
+	// Non-blocking send to redraw channel
 	select {
 	case app.redrawChan <- struct{}{}:
-		// Redraw request sent
+		// Redraw request successfully queued
 	default:
-		// Channel full, a redraw is already queued
+		// Redraw already queued, do nothing (avoids blocking)
 	}
 }
 
-// queueRedraw is an internal method for the RedrawCommand to use.
+// queueRedraw is an internal helper used by RedrawCommand.
 func (app *Application) queueRedraw() {
 	app.QueueRedraw()
 }
 
-// Dispatch sends a command to be executed by the application.
+// Dispatch sends a command to be executed asynchronously by the application's main loop.
+// This is the safe way for components or other goroutines to modify application state or trigger actions.
 func (app *Application) Dispatch(cmd Command) {
 	if cmd == nil {
-		return
+		return // Ignore nil commands
 	}
 
+	// Non-blocking send to command channel
 	select {
 	case app.cmdChan <- cmd:
-		// Command sent
+		// Command successfully queued
 	case <-app.stopChan:
-		// Application is stopping
+		// Application is stopping, discard command
+		// Log discarded command? fmt.Printf("Warning: Command %T discarded during shutdown\n", cmd)
 	}
 }
 
-// SetFocus changes the focused component.
+// SetFocus changes the focused component, handling blur/focus events.
 func (app *Application) SetFocus(component Component) {
-	// Don't focus nil components or non-focusable/invisible components
-	if component == nil || !component.Focusable() || !component.IsVisible() {
-		return
+	// Don't focus nil, non-focusable, or invisible components
+	if component != nil && (!component.Focusable() || !component.IsVisible()) {
+		component = nil // Treat request to focus invalid component as request to remove focus
 	}
 
-	// Don't change focus if already focused
-	if app.focusedComponent == component {
+	currentFocus := app.focusedComponent
+	// Don't change focus if it's already the target
+	if currentFocus == component {
 		return
 	}
-
-	// Get previous focused component
-	prevFocused := app.focusedComponent
-
-	// Set the new focused component
-	app.focusedComponent = component
 
 	// Blur the previously focused component
-	if prevFocused != nil {
-		prevFocused.Blur()
+	if currentFocus != nil {
+		currentFocus.Blur()
 	}
 
-	// Focus the new component
-	component.Focus()
+	// Set the new focused component (can be nil)
+	app.focusedComponent = component
 
-	// Queue a redraw
+	// Focus the new component (if not nil)
+	if component != nil {
+		component.Focus()
+	}
+
+	// Queue a redraw to reflect focus changes (e.g., style, cursor)
 	app.QueueRedraw()
 }
 
+// GetFocusedComponent returns the currently focused component, or nil if none.
 func (app *Application) GetFocusedComponent() Component {
 	return app.focusedComponent
 }
 
-// handleAltNumberNavigation handles Alt+Number key presses for pane navigation.
-func (app *Application) handleAltNumberNavigation(index int) {
-	// Get layout reference safely
-	layout := app.layout
-
-	if layout == nil {
-		return
-	}
-
-	// Convert 0-9 array index to 1-10 pane index
-	paneIndex := index + 1
-
-	// Get the pane at the specified index
-	pane := layout.GetPaneByIndex(paneIndex)
-	if pane == nil {
-		return
-	}
-
-	// Find the first focusable component in the pane
-	comp := pane.GetFirstFocusableComponent()
-	if comp != nil {
-		app.SetFocus(comp)
-	}
-}
-
-// cycleFocus cycles focus through all focusable components.
+// cycleFocus moves focus to the next or previous focusable component in the layout tree.
 func (app *Application) cycleFocus(forward bool) {
-	// Get layout reference safely
-	layout := app.layout
+	if app.layout == nil {
+		return
+	}
+
+	// Get all currently focusable components in the layout
+	focusables := app.layout.GetAllFocusableComponents()
+	count := len(focusables)
+	if count <= 1 {
+		// If only one focusable item, ensure it's focused
+		if count == 1 && app.focusedComponent != focusables[0] {
+			app.SetFocus(focusables[0])
+		}
+		return // No focus change possible if 0 or 1 focusable items
+	}
+
 	currentFocused := app.focusedComponent
-
-	if layout == nil {
-		return
-	}
-
-	// Get all focusable components
-	focusables := layout.GetAllFocusableComponents()
-	if len(focusables) == 0 {
-		return
-	}
-
-	// Find index of currently focused component
 	currentIndex := -1
-	for i, comp := range focusables {
-		if comp == currentFocused {
-			currentIndex = i
-			break
+	if currentFocused != nil {
+		// Find the index of the currently focused component in the list
+		for i, comp := range focusables {
+			if comp == currentFocused {
+				currentIndex = i
+				break
+			}
 		}
 	}
 
-	// Calculate next index
+	// Calculate the next index based on direction and current index
 	nextIndex := 0
-	if currentIndex >= 0 {
+	if currentIndex != -1 { // If something was focused
 		if forward {
-			nextIndex = (currentIndex + 1) % len(focusables)
+			nextIndex = (currentIndex + 1) % count
 		} else {
-			nextIndex = (currentIndex - 1 + len(focusables)) % len(focusables)
+			nextIndex = (currentIndex - 1 + count) % count // Modulo arithmetic for wrapping backward
 		}
+	} else if !forward { // Nothing focused, cycling backward
+		nextIndex = count - 1 // Start from the last item
 	}
+	// If nothing focused and cycling forward, nextIndex remains 0 (the first item)
 
-	// Focus the next component
+	// Set focus to the next component in the cycle
 	app.SetFocus(focusables[nextIndex])
 }
 
-// handleResize handles window resize events.
+// handleResize handles terminal resize events.
 func (app *Application) handleResize(ev *tcell.EventResize) {
-	// Sync the screen
-	app.screen.Sync()
-
-	// Queue a redraw
+	// Sync the screen size with tcell's internal state
+	if app.screen != nil {
+		app.screen.Sync()
+	}
+	// Queue a redraw to re-layout and redraw everything for the new size
 	app.QueueRedraw()
 }
 
-// ASSIST: Logic (rewrite keyhandler functions)
-// RegisterKeyHandler registers a handler for a specific key combination.
+// RegisterKeyHandler registers a handler function for a specific key (non-rune) and modifier combination.
+// The handler function should return true if the event was handled, false otherwise.
 func (app *Application) RegisterKeyHandler(key tcell.Key, mod tcell.ModMask, handler func() bool) {
-	// For rune keys, we still need the rune value
+	// We specifically don't handle tcell.KeyRune here; use RegisterRuneHandler for that.
 	if key == tcell.KeyRune {
-		// This case requires a different approach since we can't determine
-		// which rune this binding is for without additional info
-		// We'll keep this as a special case
-		app.runeHandlers = append(app.runeHandlers, func(ev *tcell.EventKey) bool {
-			if ev.Modifiers() == mod {
-				return handler()
-			}
-			return false
-		})
-	} else {
-		// Normal key combo registration
-		combo := KeyModCombo{
-			Key: key,
-			Mod: mod,
-		}
-
-		app.keyHandlers[combo] = handler
+		// Log a warning? This function isn't intended for rune keys.
+		// fmt.Printf("Warning: RegisterKeyHandler called with tcell.KeyRune for key %v\n", key)
+		return
 	}
+	combo := KeyModCombo{
+		Key: key,
+		Mod: mod,
+	}
+	// TODO: Add locking if handlers can be registered/deregistered concurrently with event loop?
+	// For now, assume registration happens before Run() or via Dispatch command.
+	app.keyHandlers[combo] = handler
 }
 
-// RegisterRuneHandler registers a handler for a specific rune key with modifiers.
+// RegisterRuneHandler registers a handler function for a specific rune and modifier combination.
+// The handler function should return true if the event was handled, false otherwise.
+// Handlers are checked in the order they are registered.
 func (app *Application) RegisterRuneHandler(r rune, mod tcell.ModMask, handler func() bool) {
+	// TODO: Add locking if handlers can be registered/deregistered concurrently?
 	app.runeHandlers = append(app.runeHandlers, func(ev *tcell.EventKey) bool {
-		if ev.Rune() == r && ev.Modifiers() == mod {
-			return handler()
+		// Check if the event matches the specific rune and modifiers
+		if ev.Key() == tcell.KeyRune && ev.Rune() == r && ev.Modifiers() == mod {
+			return handler() // Execute the handler
 		}
-		return false
+		return false // Event doesn't match this handler
 	})
 }
 
-// GetCursorManager returns the application's cursor manager.
+// GetCursorManager returns the application's cursor manager instance.
+// Used by input components to request cursor visibility and position.
 func (app *Application) GetCursorManager() *CursorManager {
 	return app.cursorMgr
+}
+
+// application.go
+
+// ProcessEvent handles incoming tcell events. Updated Alt+Num logic.
+func (app *Application) ProcessEvent(ev tcell.Event) {
+	focusedComp := app.GetFocusedComponent()
+
+	switch ev := ev.(type) {
+	case *tcell.EventKey:
+		key := ev.Key()
+		mod := ev.Modifiers()
+		r := ev.Rune()
+
+		// --- 1. Critical Global Keys ---
+		if key == tcell.KeyCtrlC {
+			app.Stop()
+			return
+		}
+
+		// --- 2. Focused Component Handling ---
+		if focusedComp != nil && focusedComp.HandleEvent(ev) {
+			return
+		}
+
+		// --- 3. Global Escape Key ---
+		if key == tcell.KeyEscape {
+			app.Stop()
+			return
+		}
+
+		// --- 4. Alt+Number Pane Navigation (REVISED) ---
+		if mod&tcell.ModAlt != 0 {
+			navIndex := 0
+			if r >= '1' && r <= '9' {
+				navIndex = int(r - '0') // Direct conversion '1'->1, '9'->9
+			} else if r == '0' {
+				navIndex = 10 // Alt+0 maps to navigation index 10
+			}
+			// If a valid Alt+Number combo was pressed (resulting in navIndex 1-10)
+			if navIndex > 0 {
+				app.handleAltNumberNavigation(navIndex) // Call handler with 1-10 index
+				return                                  // Event handled
+			}
+		}
+		// --- End Alt+Number ---
+
+		// --- 5. Registered Global Handlers ---
+		keyHandled := false
+		if key == tcell.KeyRune {
+			handlers := make([]func(*tcell.EventKey) bool, len(app.runeHandlers))
+			copy(handlers, app.runeHandlers)
+			for _, handler := range handlers {
+				if handler(ev) {
+					keyHandled = true
+					break
+				}
+			}
+		} else {
+			combo := KeyModCombo{Key: key, Mod: mod}
+			if handler, ok := app.keyHandlers[combo]; ok {
+				if handler() {
+					keyHandled = true
+				}
+			}
+		}
+		if keyHandled {
+			return
+		} // Event handled by registered handler
+
+		// --- 6. Global Focus Navigation (Tab / Shift+Tab) ---
+		if key == tcell.KeyTab {
+			app.cycleFocus(true)
+			return
+		}
+		if key == tcell.KeyBacktab {
+			app.cycleFocus(false)
+			return
+		}
+
+		// --- Event Ignored ---
+
+	case *tcell.EventResize:
+		// Handle terminal resize events
+		app.handleResize(ev)
+		return
+
+	case *tcell.EventMouse:
+		// TODO: Implement Mouse Event Handling if needed
+		return // Ignore mouse for now
+
+		// Handle other event types if necessary
+	}
+}
+
+// StopChan returns the channel that is closed when the application stops.
+// Can be used in select statements by goroutines to react to application shutdown.
+func (app *Application) StopChan() <-chan struct{} {
+	return app.stopChan
+}
+
+// handleAltNumberNavigation handles Alt+[1-9, 0] key presses for pane navigation using NavIndex.
+func (app *Application) handleAltNumberNavigation(targetNavIndex int) { // Now takes 1-10
+	if app.layout == nil {
+		return
+	}
+
+	// Use the layout method to find the pane by navigation index (1-10)
+	pane := app.layout.GetPaneByNavIndex(targetNavIndex)
+	if pane == nil {
+		// Optional: Add a beep or status message?
+		// appLog("No navigable pane found for Alt+%d", targetNavIndex % 10)
+		return // No pane found for this navigation index
+	}
+
+	// Find the first focusable component within that pane
+	comp := pane.GetFirstFocusableComponent()
+	if comp != nil {
+		app.SetFocus(comp) // Focus the found component
+	} else {
+		// This case should technically not happen if GetPaneByNavIndex only returns
+		// panes that have focusable children, but added as safety.
+		// appLog("Pane %d found but has no focusable component?", targetNavIndex)
+	}
 }

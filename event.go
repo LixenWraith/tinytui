@@ -5,208 +5,165 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// Command pattern for async operations
+// --- Command Pattern ---
+// Commands provide a way to decouple event handlers/components from direct
+// modification of application state or triggering complex actions. They are
+// queued via app.Dispatch() and executed sequentially in the main event loop.
+
+// Command defines the interface for actions executed by the Application.
 type Command interface {
 	Execute(app *Application)
 }
 
-// RedrawCommand signals that a redraw is needed
+// RedrawCommand signals that the entire UI needs a redraw.
 type RedrawCommand struct{}
 
+// Execute implements the Command interface.
 func (c *RedrawCommand) Execute(app *Application) {
-	app.queueRedraw()
+	app.queueRedraw() // Use the internal method for consistency
 }
 
-// FocusCommand changes focus to the target component
+// FocusCommand requests focus to be set on the target component.
 type FocusCommand struct {
-	Target Component
+	Target Component // The component to receive focus.
 }
 
+// Execute implements the Command interface.
 func (c *FocusCommand) Execute(app *Application) {
 	app.SetFocus(c.Target)
 }
 
-// UpdateTextCommand updates text content of a TextUpdater component
+// UpdateTextCommand requests updating the content of a TextUpdater component.
 type UpdateTextCommand struct {
-	Target  TextUpdater
-	Content string
+	Target  TextUpdater // Component must implement TextUpdater.
+	Content string      // The new text content.
 }
 
+// Execute implements the Command interface.
 func (c *UpdateTextCommand) Execute(app *Application) {
 	if c.Target != nil {
-		c.Target.SetContent(c.Content)
+		c.Target.SetContent(c.Content) // Component's SetContent should handle MarkDirty.
 	}
 }
 
-// UpdateGridCommand updates grid content
+// UpdateGridCommand requests updating the cells of a Grid component.
 type UpdateGridCommand struct {
-	Target  *Grid
-	Content [][]string
+	Target  *Grid      // The target Grid component.
+	Content [][]string // The new cell data.
 }
 
+// Execute implements the Command interface.
 func (c *UpdateGridCommand) Execute(app *Application) {
 	if c.Target != nil {
-		c.Target.SetCells(c.Content)
+		c.Target.SetCells(c.Content) // Component's SetCells should handle MarkDirty.
 	}
 }
 
-// UpdateSpriteCommand updates sprite content
+// UpdateSpriteCommand requests updating the cells of a Sprite component.
 type UpdateSpriteCommand struct {
-	Target  *Sprite
-	Content [][]SpriteCell
+	Target  *Sprite        // The target Sprite component.
+	Content [][]SpriteCell // The new sprite cell data.
 }
 
+// Execute implements the Command interface.
 func (c *UpdateSpriteCommand) Execute(app *Application) {
 	if c.Target != nil {
-		c.Target.SetCells(c.Content)
+		c.Target.SetCells(c.Content) // Component's SetCells should handle MarkDirty.
 	}
 }
 
-// AddPaneCommand adds a pane to the layout
+// FindNextFocusCommand requests the application find a suitable component to focus.
+// This is typically dispatched when the currently focused component is about to be
+// hidden or removed, ensuring focus doesn't get lost.
+type FindNextFocusCommand struct {
+	origin Component // The component that triggered this request (e.g., by being hidden).
+}
+
+// Execute implements the Command interface.
+func (c *FindNextFocusCommand) Execute(app *Application) {
+	currentFocus := app.GetFocusedComponent()
+
+	// Only proceed if focus is currently nil OR if the focus is still on the component
+	// that triggered this command. If focus moved elsewhere already, do nothing.
+	if currentFocus != nil && currentFocus != c.origin {
+		return
+	}
+
+	// If the origin component *was* the focused one, explicitly set focus to nil
+	// *before* searching for the next one. This prevents SetFocus(next) from
+	// potentially blurring the origin component if it hasn't been removed yet.
+	if currentFocus == c.origin {
+		app.focusedComponent = nil // Directly set to nil, avoid calling SetFocus(nil)
+	}
+
+	// Find the first available focusable component in the entire layout.
+	if app.layout != nil {
+		focusables := app.layout.GetAllFocusableComponents()
+		if len(focusables) > 0 {
+			app.SetFocus(focusables[0]) // Set focus to the first one found
+		}
+		// If no focusable components are left, focus remains nil.
+	}
+}
+
+// SimpleCommand allows dispatching an arbitrary Func function to be run in the main loop.
+type SimpleCommand struct {
+	Func func(app *Application)
+}
+
+// Execute implements the Command interface.
+func (c *SimpleCommand) Execute(app *Application) {
+	if c.Func != nil {
+		c.Func(app)
+	}
+}
+
+// AddPaneCommand requests adding a pane.
+// The Layout.AddPane method itself now dispatches the RecalculateNavIndicesCommand.
 type AddPaneCommand struct {
 	Pane *Pane
 	Size Size
 }
 
 func (c *AddPaneCommand) Execute(app *Application) {
-	if app.layout != nil {
-		app.layout.AddPane(c.Pane, c.Size)
+	if app.layout != nil && c.Pane != nil {
+		app.layout.AddPane(c.Pane, c.Size) // AddPane triggers recalculation command
 	}
 }
 
-// RemovePaneCommand removes a pane from the layout
-type RemovePaneCommand struct {
-	Index int // 0-9 array index
-}
-
+// RemovePaneCommand requests removing a pane by slot index.
+// The Layout.RemovePane method itself now dispatches the RecalculateNavIndicesCommand.
+type RemovePaneCommand struct{ Index int } // Index is Slot Index
 func (c *RemovePaneCommand) Execute(app *Application) {
 	if app.layout != nil {
-		app.layout.RemovePane(c.Index)
+		app.layout.RemovePane(c.Index) // RemovePane triggers recalculation command
 	}
 }
 
-// FindNextFocusCommand attempts to find the next focusable component
-// after the specified origin loses focus
-type FindNextFocusCommand struct {
-	origin Component // Component that lost focus
-}
+// RecalculateNavIndicesCommand signals the application to recalculate and assign
+// navigation indices to the top-level panes in the root layout.
+type RecalculateNavIndicesCommand struct{}
 
-func (c *FindNextFocusCommand) Execute(app *Application) {
-	// Skip if the origin is nil
-	if c.origin == nil {
-		return
-	}
-
-	// If we have a focused component, and it's not the origin,
-	// no need to find a new focus
-	if app.focusedComponent != nil && app.focusedComponent != c.origin {
-		return
-	}
-
-	// Clear current focus if it's the origin
-	if app.focusedComponent == c.origin {
-		app.focusedComponent = nil
-	}
-
-	// Find the next focusable component
+// Execute implements the Command interface.
+func (c *RecalculateNavIndicesCommand) Execute(app *Application) {
+	// Ensure layout exists and call assignNavigationIndices on the root layout
 	if app.layout != nil {
-		focusables := app.layout.GetAllFocusableComponents()
-		if len(focusables) > 0 {
-			app.SetFocus(focusables[0])
+		rootLayout := app.GetLayout() // Get the root layout instance
+		if rootLayout != nil {
+			rootLayout.assignNavigationIndices()
+			app.QueueRedraw() // Redraw needed to show updated indices
 		}
 	}
 }
 
-// KeyModCombo represents a key+modifier combination for keybindings.
+// --- Key Handling Structures ---
+
+// KeyModCombo represents a non-rune key + modifier combination used for keybindings.
 type KeyModCombo struct {
-	Key tcell.Key
-	Mod tcell.ModMask
+	Key tcell.Key     // The specific key (e.g., tcell.KeyEnter, tcell.KeyTab).
+	Mod tcell.ModMask // The modifier mask (e.g., tcell.ModAlt, tcell.ModCtrl).
 }
 
-// KeyHandler handles key events.
+// KeyHandler defines the function signature for handling registered key events (non-rune or specific runes).
+// It should return true if the key event was handled (consumed), false otherwise.
 type KeyHandler func() bool
-
-// ProcessEvent is called by the application to handle a tcell event.
-func (app *Application) ProcessEvent(ev tcell.Event) {
-	// Key event handling
-	if keyEvent, ok := ev.(*tcell.EventKey); ok {
-		// Escape key or Ctrl+C to quit
-		if keyEvent.Key() == tcell.KeyEscape || keyEvent.Key() == tcell.KeyCtrlC {
-			app.Stop()
-			return
-		}
-
-		// Check Alt+number for pane navigation
-		if keyEvent.Modifiers()&tcell.ModAlt != 0 {
-			if r := keyEvent.Rune(); r >= '1' && r <= '9' {
-				index := int(r - '1') // Convert 1-9 to 0-8
-				app.handleAltNumberNavigation(index)
-				return
-			} else if r == '0' {
-				// Handle Alt+0 as 10th pane (array index 9)
-				app.handleAltNumberNavigation(9)
-				return
-			}
-		}
-		// Safely get reference to focused component
-		var focusedComp Component
-		var runeHandlersCopy []func(*tcell.EventKey) bool
-		var keyHandler KeyHandler
-		var hasHandler bool
-
-		focusedComp = app.focusedComponent
-
-		// Make a copy of rune handlers if needed
-		if keyEvent.Key() == tcell.KeyRune {
-			runeHandlersCopy = make([]func(*tcell.EventKey) bool, len(app.runeHandlers))
-			copy(runeHandlersCopy, app.runeHandlers)
-		}
-
-		// Check if the key combo has a global handler
-		if keyEvent.Key() != tcell.KeyRune {
-			combo := KeyModCombo{
-				Key: keyEvent.Key(),
-				Mod: keyEvent.Modifiers(),
-			}
-			keyHandler, hasHandler = app.keyHandlers[combo]
-		}
-
-		// Check for rune handlers outside of lock
-		if keyEvent.Key() == tcell.KeyRune {
-			for _, handler := range runeHandlersCopy {
-				if handler(keyEvent) {
-					return // Event handled
-				}
-			}
-		}
-
-		// Execute key handler outside of lock
-		if hasHandler {
-			if keyHandler() {
-				return // Event handled
-			}
-		}
-
-		// Let focused component handle the event outside of lock
-		if focusedComp != nil {
-			if focusedComp.HandleEvent(ev) {
-				return // Event handled by component
-			}
-		}
-
-		// Tab/Shift+Tab for focus navigation
-		if keyEvent.Key() == tcell.KeyTab {
-			app.cycleFocus(true) // Forward
-			return
-		} else if keyEvent.Key() == tcell.KeyBacktab {
-			app.cycleFocus(false) // Backward
-			return
-		}
-	}
-
-	// Window resize event
-	if resizeEvent, ok := ev.(*tcell.EventResize); ok {
-		app.handleResize(resizeEvent)
-		return
-	}
-}

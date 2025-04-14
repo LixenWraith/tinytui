@@ -1,321 +1,333 @@
 // theme.go
 package tinytui
 
-// ThemeName represents a predefined theme identifier.
+import (
+	"sync" // Use sync for thread-safe access to global theme manager
+)
+
+// ThemeName identifies a predefined theme (e.g., "default", "turbo").
+// Used for registering and setting themes.
 type ThemeName string
 
 const (
-	// ThemeDefault is the fallback theme
+	// ThemeDefault is the standard light-background fallback theme.
 	ThemeDefault ThemeName = "default"
-	// ThemeTurbo is loosely inspired by turbo vision color scheme
+	// ThemeTurbo is a theme inspired by Turbo Vision's classic blue-background look.
 	ThemeTurbo ThemeName = "turbo"
 )
 
-// Theme defines the interface for a UI theme.
+// Theme defines the interface for providing styles and properties for UI elements.
+// Implementations of this interface determine the visual appearance of the application.
 type Theme interface {
-	// Name returns the unique name of the theme
+	// Name returns the unique identifier of the theme (e.g., "default", "turbo").
 	Name() ThemeName
 
-	// TextStyles
+	// --- Style Getters ---
+
+	// TextStyle returns the default style for standard text elements like Text components.
 	TextStyle() Style
+	// TextSelectedStyle returns the style for selected text elements (e.g., in a future List component).
 	TextSelectedStyle() Style
 
-	// Grid styles based on state
-	GridStyle() Style                  // Base style (equivalent to GridNormalStyle)
-	GridFocusedStyle() Style           // Base focused style
-	GridSelectedStyle() Style          // Selected, not focused
-	GridInteractedStyle() Style        // Interacted, not focused
-	GridFocusedSelectedStyle() Style   // Selected and focused
-	GridFocusedInteractedStyle() Style // Interacted and focused
+	// GridStyle returns the style for normal, unfocused grid cells.
+	GridStyle() Style
+	// GridSelectedStyle returns the style for selected grid cells when the grid is not focused.
+	GridSelectedStyle() Style
+	// GridInteractedStyle returns the style for interacted (e.g., toggled) grid cells when the grid is not focused.
+	GridInteractedStyle() Style
+	// GridFocusedStyle returns the style for normal grid cells when the grid itself has input focus.
+	GridFocusedStyle() Style
+	// GridFocusedSelectedStyle returns the style for selected grid cells when the grid has input focus.
+	GridFocusedSelectedStyle() Style
+	// GridFocusedInteractedStyle returns the style for interacted grid cells when the grid has input focus.
+	GridFocusedInteractedStyle() Style
 
-	// Pane styles
-	PaneStyle() Style            // Style for pane content area
-	PaneBorderStyle() Style      // Style for pane border (unfocused)
-	PaneFocusBorderStyle() Style // Style for pane border when a child has focus
+	// PaneStyle returns the background style for the content area within panes (inside the border).
+	PaneStyle() Style
+	// PaneBorderStyle returns the style for pane borders when the pane (or its children) are not focused.
+	PaneBorderStyle() Style
+	// PaneFocusBorderStyle returns the style for pane borders when the pane (or its children) has input focus.
+	PaneFocusBorderStyle() Style
 
-	// Default cell dimensions for grid
+	// --- Property Getters ---
+
+	// DefaultCellWidth returns the theme's preferred default width for grid cells (used if Grid.autoWidth is false).
 	DefaultCellWidth() int
+	// DefaultCellHeight returns the theme's preferred default height for grid cells (usually 1).
 	DefaultCellHeight() int
+	// DefaultPadding returns the theme's preferred default internal padding within widgets like Grid cells.
+	DefaultPadding() int
 
-	// Indicator and padding
-	IndicatorColor() Color // Color for selection indicators
-	DefaultPadding() int   // Default padding for widgets
+	// IndicatorColor returns the theme's preferred color for selection indicators (e.g., the cursor in a Grid).
+	IndicatorColor() Color
 
-	// Border types
-	DefaultBorderType() Border // Default border type for unfocused panes
-	FocusedBorderType() Border // Border type for panes when a child has focus
+	// DefaultBorderType returns the theme's preferred default border type for panes (e.g., BorderSingle, BorderDouble).
+	DefaultBorderType() Border
+	// FocusedBorderType returns the theme's preferred border type for panes when they (or their children) have focus.
+	FocusedBorderType() Border
 }
 
-// themeManager handles the current theme and theme switching.
+// themeManager manages the set of available themes and the currently active global theme.
+// Access to the manager's state is protected by a RWMutex for thread safety.
 type themeManager struct {
 	current     Theme
 	themes      map[ThemeName]Theme
-	subscribers []func(Theme)
+	mu          sync.RWMutex  // Read/Write mutex for thread-safe access
+	subscribers []func(Theme) // Slice of functions to call on theme change
 }
 
 var (
-	// Global theme manager instance
+	// globalThemeManager holds the single, shared instance managing themes for the application process.
 	globalThemeManager = &themeManager{
 		themes:      make(map[ThemeName]Theme),
 		subscribers: make([]func(Theme), 0),
+		// current theme is set during package initialization (see base_theme.go)
 	}
 )
 
-// RegisterTheme adds a theme to the available themes.
+// RegisterTheme adds a new theme implementation to the manager.
+// If it's the first theme registered, it automatically becomes the current global theme.
 func RegisterTheme(theme Theme) {
 	if theme == nil {
-		return
+		return // Ignore attempts to register nil themes
 	}
 
+	globalThemeManager.mu.Lock() // Acquire write lock to modify themes map and potentially current
+	defer globalThemeManager.mu.Unlock()
+
 	name := theme.Name()
+	if name == "" {
+		return
+	} // Ignore themes with empty names
 	globalThemeManager.themes[name] = theme
 
-	// If this is the first theme registered, set it as current
+	// Set as current global theme if no theme is currently set
 	if globalThemeManager.current == nil {
 		globalThemeManager.current = theme
 	}
 }
 
-// SetTheme changes the current theme.
+// SetTheme changes the globally active theme to the one identified by `name`.
+// Returns true if the theme was found and successfully set, false otherwise.
+// Notifies all registered subscribers about the theme change.
+// Note: This changes the *global* theme; individual Application instances might use app.SetTheme later.
 func SetTheme(name ThemeName) bool {
+	globalThemeManager.mu.Lock() // Acquire write lock for changing current theme and notifying subscribers
+
 	theme, ok := globalThemeManager.themes[name]
 	if !ok {
-		return false
+		globalThemeManager.mu.Unlock() // Release lock before returning
+		return false                   // Theme name not registered
+	}
+
+	// Only proceed if the theme is actually changing
+	if globalThemeManager.current == theme {
+		globalThemeManager.mu.Unlock() // Release lock before returning
+		return true                    // No change needed
 	}
 
 	globalThemeManager.current = theme
 
-	// Notify subscribers
-	for _, subscriber := range globalThemeManager.subscribers {
+	// Create a copy of the subscribers slice to safely iterate outside the lock
+	subs := make([]func(Theme), len(globalThemeManager.subscribers))
+	copy(subs, globalThemeManager.subscribers)
+
+	globalThemeManager.mu.Unlock() // *** Release lock before calling subscribers ***
+
+	// Notify subscribers about the new theme
+	for _, subscriber := range subs {
+		// Consider error handling or timeouts for subscriber calls? For now, call directly.
 		subscriber(theme)
 	}
+
+	// No need to re-acquire lock here
 
 	return true
 }
 
-// GetTheme returns the current theme.
+// GetTheme returns the currently active global theme.
+// It's safe for concurrent reading due to the RWMutex.
 func GetTheme() Theme {
+	globalThemeManager.mu.RLock() // Acquire read lock
+	defer globalThemeManager.mu.RUnlock()
+
+	// The init() function in base_theme.go ensures `current` is non-nil after package load.
+	// If this were somehow called before init, it might return nil.
 	return globalThemeManager.current
 }
 
-// SubscribeThemeChange registers a function to be called when the theme changes.
+// SubscribeThemeChange registers a callback function to be executed whenever the global theme changes via SetTheme.
+// The callback is also executed immediately with the current theme upon successful registration.
 func SubscribeThemeChange(callback func(Theme)) {
 	if callback == nil {
-		return
+		return // Ignore nil callbacks
 	}
+
+	globalThemeManager.mu.Lock() // Acquire write lock to modify subscribers slice
+	defer globalThemeManager.mu.Unlock()
 
 	globalThemeManager.subscribers = append(globalThemeManager.subscribers, callback)
 
-	// Call immediately with current theme
+	// Call immediately with the current theme if one exists
 	if globalThemeManager.current != nil {
-		callback(globalThemeManager.current)
+		currentTheme := globalThemeManager.current
+		// Temporarily release lock for the immediate callback to prevent deadlocks
+		globalThemeManager.mu.Unlock()
+		callback(currentTheme)
+		globalThemeManager.mu.Lock() // Re-acquire lock before returning
 	}
 }
 
-// Default style getters
-// These functions provide easy access to the current theme's styles.
+// --- Theme Getters (Convenience Functions) ---
+// These provide easy global access to the properties of the *currently active global* theme.
+// They handle the case where GetTheme() might theoretically return nil (though unlikely after init).
 
-// DefaultTextStyle returns the current theme's text style.
 func DefaultTextStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.TextStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle
 	}
-	return DefaultStyle
+	return t.TextStyle()
 }
-
-// DefaultTextSelectedStyle returns the current theme's selected text style.
 func DefaultTextSelectedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.TextSelectedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Reverse(true)
 	}
-	return DefaultStyle.Reverse(true)
+	return t.TextSelectedStyle()
 }
-
-// DefaultGridStyle returns the current theme's grid style.
 func DefaultGridStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle
 	}
-	return DefaultStyle
+	return t.GridStyle()
 }
-
-// DefaultGridSelectedStyle returns the current theme's selected grid cell style.
 func DefaultGridSelectedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridSelectedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Reverse(true)
 	}
-	return DefaultStyle.Reverse(true)
+	return t.GridSelectedStyle()
 }
-
-// DefaultGridInteractedStyle returns the current theme's interacted grid cell style.
 func DefaultGridInteractedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridInteractedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Bold(true)
 	}
-	return DefaultStyle.Bold(true)
+	return t.GridInteractedStyle()
 }
-
-// DefaultGridFocusedStyle returns the current theme's focused grid style.
 func DefaultGridFocusedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridFocusedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle
 	}
-	return DefaultStyle
+	return t.GridFocusedStyle()
 }
-
-// DefaultGridFocusedSelectedStyle returns the current theme's focused and selected grid cell style.
 func DefaultGridFocusedSelectedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridFocusedSelectedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Reverse(true)
 	}
-	return DefaultStyle.Reverse(true)
+	return t.GridFocusedSelectedStyle()
 }
-
-// DefaultGridFocusedInteractedStyle returns the current theme's focused and interacted grid cell style.
 func DefaultGridFocusedInteractedStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.GridFocusedInteractedStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Reverse(true).Bold(true)
 	}
-	return DefaultStyle.Reverse(true).Bold(true)
+	return t.GridFocusedInteractedStyle()
 }
-
-// DefaultPaneStyle returns the current theme's pane style.
 func DefaultPaneStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.PaneStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle
 	}
-	return DefaultStyle
+	return t.PaneStyle()
 }
-
-// DefaultPaneBorderStyle returns the current theme's pane border style.
 func DefaultPaneBorderStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.PaneBorderStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle
 	}
-	return DefaultStyle
+	return t.PaneBorderStyle()
 }
-
-// DefaultPaneFocusBorderStyle returns the current theme's focused pane border style.
 func DefaultPaneFocusBorderStyle() Style {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.PaneFocusBorderStyle()
+	t := GetTheme()
+	if t == nil {
+		return DefaultStyle.Foreground(ColorYellow).Bold(true)
 	}
-	return DefaultStyle.Foreground(ColorYellow).Bold(true)
+	return t.PaneFocusBorderStyle()
 }
-
-// DefaultCellWidth returns the current theme's default cell width.
 func DefaultCellWidth() int {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.DefaultCellWidth()
+	t := GetTheme()
+	if t == nil {
+		return 10
 	}
-	return 10 // Default value
+	return t.DefaultCellWidth()
 }
-
-// DefaultCellHeight returns the current theme's default cell height.
 func DefaultCellHeight() int {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.DefaultCellHeight()
+	t := GetTheme()
+	if t == nil {
+		return 1
 	}
-	return 1 // Default value
+	return t.DefaultCellHeight()
 }
-
-// DefaultPadding returns the current theme's default padding.
 func DefaultPadding() int {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.DefaultPadding()
+	t := GetTheme()
+	if t == nil {
+		return 1
 	}
-	return 1 // Default value
+	return t.DefaultPadding()
 }
-
-// DefaultIndicatorColor returns the current theme's indicator color.
 func DefaultIndicatorColor() Color {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.IndicatorColor()
+	t := GetTheme()
+	if t == nil {
+		return ColorRed
 	}
-	return ColorRed // Default value
+	return t.IndicatorColor()
 }
-
-// DefaultBorderType returns the current theme's default border type.
 func DefaultBorderType() Border {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.DefaultBorderType()
+	t := GetTheme()
+	if t == nil {
+		return BorderSingle
 	}
-	return BorderSingle // Default fallback
+	return t.DefaultBorderType()
 }
-
-// FocusedBorderType returns the current theme's focused border type.
 func FocusedBorderType() Border {
-	theme := GetTheme()
-	if theme != nil {
-		return theme.FocusedBorderType()
+	t := GetTheme()
+	if t == nil {
+		return BorderSingle
 	}
-	return BorderSingle // Default fallback
+	return t.FocusedBorderType()
 }
 
-// GetGridStyle returns the appropriate style for a grid widget based on its state and focus.
+// GetGridStyle is a helper function to retrieve the appropriate style for a grid cell
+// based on its state (Normal, Selected, Interacted), whether the grid itself has focus,
+// and the provided theme. If `theme` is nil, it uses the current global theme.
 func GetGridStyle(theme Theme, state State, focused bool) Style {
-	if theme == nil {
-		theme = GetTheme()
-		if theme == nil {
-			// Fall back to default styles
-			switch {
-			case focused && state == StateInteracted:
-				return DefaultStyle.Reverse(true).Bold(true)
-			case focused && state == StateSelected:
-				return DefaultStyle.Reverse(true)
-			case focused:
-				return DefaultStyle
-			case state == StateInteracted:
-				return DefaultStyle.Bold(true)
-			case state == StateSelected:
-				return DefaultStyle.Dim(true).Underline(true)
-			default:
-				return DefaultStyle
-			}
+	// Use global theme if a specific theme is not provided
+	activeTheme := theme
+	if activeTheme == nil {
+		activeTheme = GetTheme()
+		if activeTheme == nil { // Absolute fallback if global theme failed
+			activeTheme = NewDefaultTheme()
 		}
 	}
 
+	// Determine the correct style based on focus and state, using theme methods
 	switch {
 	case focused && state == StateInteracted:
-		return theme.GridFocusedInteractedStyle()
+		return activeTheme.GridFocusedInteractedStyle()
 	case focused && state == StateSelected:
-		return theme.GridFocusedSelectedStyle()
-	case focused:
-		return theme.GridFocusedStyle()
-	case state == StateInteracted:
-		return theme.GridInteractedStyle()
-	case state == StateSelected:
-		return theme.GridSelectedStyle()
-	default:
-		return theme.GridStyle()
+		return activeTheme.GridFocusedSelectedStyle()
+	case focused: // Focused, normal state
+		return activeTheme.GridFocusedStyle()
+	case state == StateInteracted: // Unfocused, interacted state
+		return activeTheme.GridInteractedStyle()
+	case state == StateSelected: // Unfocused, selected state
+		return activeTheme.GridSelectedStyle()
+	default: // Unfocused, normal state
+		return activeTheme.GridStyle()
 	}
-}
-
-// ThemedComponent is an interface for components that need custom theme handling.
-// Components implementing this interface can respond to theme changes with
-// specialized behavior beyond the default styles.
-//
-// Note: This is currently a forward-looking interface that will enable more
-// sophisticated theming in future versions. Its implementation is minimal in
-// the current version but provides a foundation for component-specific theme
-// handling.
-type ThemedComponent interface {
-	Component
-	ApplyTheme(theme Theme)
 }

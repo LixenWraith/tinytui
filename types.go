@@ -1,7 +1,8 @@
 // types.go
 package tinytui
 
-// Rect defines a rectangular area on the screen.
+// Rect defines a rectangular area on the screen using top-left coordinates (X, Y)
+// and dimensions (Width, Height). Standard struct for component geometry.
 type Rect struct {
 	X      int
 	Y      int
@@ -9,81 +10,86 @@ type Rect struct {
 	Height int
 }
 
-// Size defines how components should be sized in layouts.
-// Either FixedSize or Proportion should be set, not both.
+// Size defines constraints for how a component should be sized within a Layout.
+// Use either FixedSize (absolute cell count) or Proportion (relative share of remaining space).
+// If both are zero or negative, Layout typically assumes Proportion=1.
 type Size struct {
-	FixedSize  int // Fixed size in cells
-	Proportion int // Relative proportion of available space (if FixedSize == 0)
+	FixedSize  int // Fixed size in cells (takes precedence over Proportion). Set to > 0 to use.
+	Proportion int // Relative proportion of available space (used if FixedSize <= 0). Set to > 0 to use.
 }
 
-// State represents the current state of a component.
+// State represents the interaction state of a component, primarily used for visual feedback
+// in interactive elements like Grid cells or potentially Buttons/Checkboxes in the future.
 type State int
 
 const (
-	// StateNormal is the default state
+	// StateNormal is the default, non-selected, non-interacted state.
 	StateNormal State = iota
-	// StateSelected indicates the component is selected but not interacted with
+	// StateSelected indicates the component/cell is currently selected (e.g., highlighted by a cursor).
 	StateSelected
-	// StateInteracted indicates the component is actively interacted with
+	// StateInteracted indicates the component/cell has been activated or toggled (e.g., Enter pressed on it).
 	StateInteracted
 )
 
-// Orientation defines the direction children are laid out in a layout.
+// Orientation specifies the direction children are arranged within a Layout.
 type Orientation int
 
 const (
-	// Horizontal lays out children side-by-side.
+	// Horizontal arranges child panes side-by-side, left-to-right.
 	Horizontal Orientation = iota
-	// Vertical lays out children one above the other.
+	// Vertical arranges child panes one above the other, top-to-bottom.
 	Vertical
 )
 
-// Alignment defines how items are aligned along a layout axis.
+// Alignment defines how items are positioned within a container or along a layout axis.
+// Used primarily for Layout's CrossAxisAlignment, potentially MainAxisAlignment in future.
 type Alignment int
 
 const (
-	// AlignStart aligns items at the start (top/left)
+	// AlignStart aligns items to the beginning of the axis (Top for Vertical, Left for Horizontal).
 	AlignStart Alignment = iota
-	// AlignCenter centers items within the available space
+	// AlignCenter centers items within the available space on the axis. (Layout support may be partial).
 	AlignCenter
-	// AlignEnd aligns items at the end (bottom/right)
+	// AlignEnd aligns items to the end of the axis (Bottom for Vertical, Right for Horizontal). (Layout support may be partial).
 	AlignEnd
-	// AlignStretch stretches items to fill the container (default)
+	// AlignStretch expands items to fill the available space on the relevant axis (default for Layout's cross axis).
 	AlignStretch
 )
 
-// Border defines the style of border to draw.
+// Border defines the visual style of a Pane's border line/characters.
 type Border int
 
 const (
-	// BorderNone indicates no border should be drawn
+	// BorderNone indicates no border should be drawn around the pane. Content fills the entire pane rectangle.
 	BorderNone Border = iota
-	// BorderSingle indicates a single-line border
+	// BorderSingle draws a border using single-line box drawing characters ('┌', '─', '┐', etc.).
 	BorderSingle
-	// BorderDouble indicates a double-line border
+	// BorderDouble draws a border using double-line box drawing characters ('╔', '═', '╗', etc.).
 	BorderDouble
-	// BorderSolid indicates a solid block border
+	// BorderSolid draws a border using solid block characters ('▀', '█', '▄', etc.).
 	BorderSolid
 )
 
-// ScreenMode defines how the terminal screen is handled.
+// ScreenMode controls how the application interacts with the terminal screen buffer upon start.
 type ScreenMode int
 
 const (
-	// ScreenNormal uses the terminal's current size
+	// ScreenNormal operates within the terminal's main buffer, using its current size and content.
 	ScreenNormal ScreenMode = iota
-	// ScreenFullscreen attempts to use the entire terminal
+	// ScreenFullscreen attempts to clear and use the entire terminal window (best effort, depends on terminal).
 	ScreenFullscreen
-	// ScreenAlternate uses the terminal's alternate screen buffer
+	// ScreenAlternate switches to the terminal's alternate screen buffer (if available). This typically
+	// provides a clean slate and restores the previous buffer content when the application exits via Fini().
 	ScreenAlternate
 )
 
-// SelectionMode defines whether a Grid allows single or multiple selections
+// SelectionMode defines how selection and interaction behave within a Grid component.
 type SelectionMode int
 
 const (
-	// SingleSelect allows only one item to be selected/interacted at a time
+	// SingleSelect allows only one cell to be in the 'interacted' state at a time.
+	// Interacting with a cell (e.g., pressing Enter) sets it as interacted and clears any previously interacted cell.
 	SingleSelect SelectionMode = iota
-	// MultiSelect allows multiple items to be selected/interacted
+	// MultiSelect allows multiple cells to be independently toggled into/out of the 'interacted' state.
 	MultiSelect
 )
