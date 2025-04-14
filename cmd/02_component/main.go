@@ -1,4 +1,4 @@
-// cmd/tictactoe/main.go
+// cmd/02_component/main.go
 package main
 
 import (

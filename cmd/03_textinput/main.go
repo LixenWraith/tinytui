@@ -1,4 +1,4 @@
-// cmd/textinput/main.go
+// cmd/03_textinput/main.go
 package main
 
 import (
@@ -34,21 +34,21 @@ func main() {
 	// Create a vertical layout for title and input
 	inputLayout := tinytui.NewLayout(tinytui.Vertical)
 
-	// Create title text
-	inputTitle := tinytui.NewText("Enter text below and press Enter:")
-
 	// Create a title pane
 	titlePane := tinytui.NewPane()
-	titlePane.SetChild(inputTitle)
-	titlePane.SetBorder(tinytui.BorderNone, tinytui.DefaultStyle)
+	titlePane.SetBorder(tinytui.BorderSingle, tinytui.DefaultStyle)
 
-	// Create TextInput component
-	textInput := tinytui.NewTextInput()
+	// Create title text
+	inputTitle := tinytui.NewText("Enter text below and press Enter:")
+	titlePane.SetChild(inputTitle)
 
 	// Create a pane for the text input
 	textInputPane := tinytui.NewPane()
+	textInputPane.SetBorder(tinytui.BorderSingle, tinytui.DefaultStyle)
+
+	// Create TextInput component
+	textInput := tinytui.NewTextInput()
 	textInputPane.SetChild(textInput)
-	textInputPane.SetBorder(tinytui.BorderNone, tinytui.DefaultStyle)
 
 	// Add components to input layout
 	inputLayout.AddPane(titlePane, tinytui.Size{Proportion: 1})
@@ -66,18 +66,6 @@ func main() {
 
 	// Set display text as the pane's child
 	displayPane.SetChild(displayText)
-
-	// Set up handler for text input submission
-	textInput.SetOnSubmit(func(text string) {
-		// Update display text with submitted input
-		displayText.SetContent("You entered: " + text)
-
-		// Keep focus on text input
-		app.SetFocus(textInput)
-
-		// Clear the input field
-		textInput.SetText("")
-	})
 
 	// Add panes to top layout
 	topLayout.AddPane(inputPane, tinytui.Size{Proportion: 1})
@@ -98,15 +86,7 @@ func main() {
 	clearGrid.SetCells(clearCells)
 	clearGrid.SetCellSize(8, 1)
 
-	// Set handler for clear button
-	clearGrid.SetOnSelect(func(row, col int, item string) {
-		log.Println("Clear button pressed")
-		displayText.SetContent("Input will appear here")
-
-		// Set focus back to text input
-		app.SetFocus(textInput)
-	})
-
+	// Set the grid as the pane's child
 	clearPane.SetChild(clearGrid)
 
 	// Add layouts to main layout
@@ -115,6 +95,29 @@ func main() {
 
 	// Set the layout as the application's main layout
 	app.SetLayout(mainLayout)
+
+	// Set up event handlers
+
+	// Handler for text input submission
+	textInput.SetOnSubmit(func(text string) {
+		// Update display text with submitted input
+		displayText.SetContent("You entered: " + text)
+
+		// Keep focus on text input
+		app.SetFocus(textInput)
+
+		// Clear the input field
+		textInput.SetText("")
+	})
+
+	// Handler for clear button
+	clearGrid.SetOnSelect(func(row, col int, item string) {
+		log.Println("Clear button pressed")
+		displayText.SetContent("Input will appear here")
+
+		// Set focus back to text input
+		app.SetFocus(textInput)
+	})
 
 	// Focus the text input component initially
 	app.SetFocus(textInput)

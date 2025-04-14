@@ -69,21 +69,29 @@ func DrawBox(screen tcell.Screen, x, y, width, height int, style Style) {
 	// Get screen dimensions for bounds checking
 	screenWidth, screenHeight := screen.Size()
 
-	// Draw corners
+	// Calculate bottom position once to ensure consistency
+	bottomY := y + height - 1
+
+	// Draw the box in stages to ensure all parts are drawn correctly
+
+	// 1. Draw the four corners first
 	if y >= 0 && y < screenHeight && x >= 0 && x < screenWidth {
 		screen.SetContent(x, y, RuneULCorner, nil, tcellStyle)
 	}
+
 	if y >= 0 && y < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
 		screen.SetContent(x+width-1, y, RuneURCorner, nil, tcellStyle)
 	}
-	if y+height-1 >= 0 && y+height-1 < screenHeight && x >= 0 && x < screenWidth {
-		screen.SetContent(x, y+height-1, RuneLLCorner, nil, tcellStyle)
-	}
-	if y+height-1 >= 0 && y+height-1 < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
-		screen.SetContent(x+width-1, y+height-1, RuneLRCorner, nil, tcellStyle)
+
+	if bottomY >= 0 && bottomY < screenHeight && x >= 0 && x < screenWidth {
+		screen.SetContent(x, bottomY, RuneLLCorner, nil, tcellStyle)
 	}
 
-	// Draw horizontal lines
+	if bottomY >= 0 && bottomY < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
+		screen.SetContent(x+width-1, bottomY, RuneLRCorner, nil, tcellStyle)
+	}
+
+	// 2. Draw the horizontal lines between corners
 	for col := x + 1; col < x+width-1; col++ {
 		// Skip columns outside screen bounds
 		if col < 0 || col >= screenWidth {
@@ -95,13 +103,13 @@ func DrawBox(screen tcell.Screen, x, y, width, height int, style Style) {
 			screen.SetContent(col, y, RuneHLine, nil, tcellStyle)
 		}
 
-		// Bottom line
-		if y+height-1 >= 0 && y+height-1 < screenHeight {
-			screen.SetContent(col, y+height-1, RuneHLine, nil, tcellStyle)
+		// Bottom line - explicit drawing with careful bounds checking
+		if bottomY >= 0 && bottomY < screenHeight {
+			screen.SetContent(col, bottomY, RuneHLine, nil, tcellStyle)
 		}
 	}
 
-	// Draw vertical lines
+	// 3. Draw the vertical lines between corners
 	for row := y + 1; row < y+height-1; row++ {
 		// Skip rows outside screen bounds
 		if row < 0 || row >= screenHeight {
@@ -131,21 +139,29 @@ func DrawDoubleBox(screen tcell.Screen, x, y, width, height int, style Style) {
 	// Get screen dimensions for bounds checking
 	screenWidth, screenHeight := screen.Size()
 
-	// Draw corners
+	// Calculate bottom position once to ensure consistency
+	bottomY := y + height - 1
+
+	// Draw the box in stages to ensure all parts are drawn correctly
+
+	// 1. Draw the four corners first
 	if y >= 0 && y < screenHeight && x >= 0 && x < screenWidth {
 		screen.SetContent(x, y, RuneDoubleULCorner, nil, tcellStyle)
 	}
+
 	if y >= 0 && y < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
 		screen.SetContent(x+width-1, y, RuneDoubleURCorner, nil, tcellStyle)
 	}
-	if y+height-1 >= 0 && y+height-1 < screenHeight && x >= 0 && x < screenWidth {
-		screen.SetContent(x, y+height-1, RuneDoubleLLCorner, nil, tcellStyle)
-	}
-	if y+height-1 >= 0 && y+height-1 < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
-		screen.SetContent(x+width-1, y+height-1, RuneDoubleLRCorner, nil, tcellStyle)
+
+	if bottomY >= 0 && bottomY < screenHeight && x >= 0 && x < screenWidth {
+		screen.SetContent(x, bottomY, RuneDoubleLLCorner, nil, tcellStyle)
 	}
 
-	// Draw horizontal lines
+	if bottomY >= 0 && bottomY < screenHeight && x+width-1 >= 0 && x+width-1 < screenWidth {
+		screen.SetContent(x+width-1, bottomY, RuneDoubleLRCorner, nil, tcellStyle)
+	}
+
+	// 2. Draw the horizontal lines between corners
 	for col := x + 1; col < x+width-1; col++ {
 		// Skip columns outside screen bounds
 		if col < 0 || col >= screenWidth {
@@ -157,13 +173,13 @@ func DrawDoubleBox(screen tcell.Screen, x, y, width, height int, style Style) {
 			screen.SetContent(col, y, RuneDoubleHLine, nil, tcellStyle)
 		}
 
-		// Bottom line
-		if y+height-1 >= 0 && y+height-1 < screenHeight {
-			screen.SetContent(col, y+height-1, RuneDoubleHLine, nil, tcellStyle)
+		// Bottom line - explicit drawing with careful bounds checking
+		if bottomY >= 0 && bottomY < screenHeight {
+			screen.SetContent(col, bottomY, RuneDoubleHLine, nil, tcellStyle)
 		}
 	}
 
-	// Draw vertical lines
+	// 3. Draw the vertical lines between corners
 	for row := y + 1; row < y+height-1; row++ {
 		// Skip rows outside screen bounds
 		if row < 0 || row >= screenHeight {
@@ -193,6 +209,9 @@ func DrawSolidBox(screen tcell.Screen, x, y, width, height int, style Style) {
 	// Get screen dimensions for bounds checking
 	screenWidth, screenHeight := screen.Size()
 
+	// Calculate bottom position once to ensure consistency
+	bottomY := y + height - 1
+
 	// If dimensions are too small, draw a solid block
 	if width == 1 && height == 1 {
 		if x >= 0 && x < screenWidth && y >= 0 && y < screenHeight {
@@ -201,7 +220,9 @@ func DrawSolidBox(screen tcell.Screen, x, y, width, height int, style Style) {
 		return
 	}
 
-	// Draw top and bottom lines
+	// Draw the box in stages to ensure all parts are drawn correctly
+
+	// 1. Draw top and bottom lines
 	for col := x; col < x+width; col++ {
 		// Skip columns outside screen bounds
 		if col < 0 || col >= screenWidth {
@@ -213,14 +234,14 @@ func DrawSolidBox(screen tcell.Screen, x, y, width, height int, style Style) {
 			screen.SetContent(col, y, RuneUpperHalfBlock, nil, tcellStyle)
 		}
 
-		// Bottom line
-		if y+height-1 >= 0 && y+height-1 < screenHeight && height > 1 {
-			screen.SetContent(col, y+height-1, RuneLowerHalfBlock, nil, tcellStyle)
+		// Bottom line - explicit drawing with careful bounds checking
+		if bottomY >= 0 && bottomY < screenHeight && height > 1 {
+			screen.SetContent(col, bottomY, RuneLowerHalfBlock, nil, tcellStyle)
 		}
 	}
 
-	// Draw left and right lines
-	for row := y + 1; row < y+height-1; row++ {
+	// 2. Draw the vertical sides
+	for row := y + 1; row < bottomY; row++ {
 		// Skip rows outside screen bounds
 		if row < 0 || row >= screenHeight {
 			continue
@@ -277,30 +298,4 @@ func DrawText(screen tcell.Screen, x, y int, style Style, text string) {
 
 		startX += width
 	}
-}
-
-// DrawTextCentered draws text centered horizontally within the specified width.
-func DrawTextCentered(screen tcell.Screen, x, y, width int, style Style, text string) {
-	textWidth := runewidth.StringWidth(text)
-
-	// Calculate start position for centering
-	startX := x + (width-textWidth)/2
-	if startX < x {
-		startX = x // Don't start before the specified x position
-	}
-
-	DrawText(screen, startX, y, style, text)
-}
-
-// DrawTextRight draws text aligned to the right within the specified width.
-func DrawTextRight(screen tcell.Screen, x, y, width int, style Style, text string) {
-	textWidth := runewidth.StringWidth(text)
-
-	// Calculate start position for right alignment
-	startX := x + width - textWidth
-	if startX < x {
-		startX = x // Don't start before the specified x position
-	}
-
-	DrawText(screen, startX, y, style, text)
 }

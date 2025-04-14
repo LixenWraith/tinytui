@@ -136,6 +136,14 @@ func (p *Pane) getContentRect() (x, y, width, height int) {
 		y += 1
 		width -= 2
 		height -= 2
+
+		// Ensure content size is never negative
+		if width < 0 {
+			width = 0
+		}
+		if height < 0 {
+			height = 0
+		}
 	}
 
 	return x, y, width, height
@@ -205,10 +213,65 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 			DrawSolidBox(screen, rect.X, rect.Y, rect.Width, rect.Height, currentBorderStyle)
 		}
 
-		// Draw title if present
+		// Draw index indicator with new format (at the left side)
+		startX := rect.X + 1
+		indexDisplay := ""
+
+		// Calculate if this pane should have an index
+		// Only panes with index > 0 should display their index
+		hasValidIndex := index > 0 && showIndexIndicator // && p.GetFirstFocusableComponent() != nil
+
+		if hasValidIndex {
+			// Format index as string
+			indexStr := strconv.Itoa(index)
+			if index == 10 {
+				indexStr = "0" // Use 0 to represent 10 (for Alt+0)
+			}
+
+			// New format: '[#]' or '[paneNumber]'
+			displayChar := indexStr
+			if isFocused {
+				displayChar = "#" // Use '#' for focused pane
+			}
+
+			// Select appropriate bracket style based on border type
+			prefix := "["
+			suffix := "]"
+			if border == BorderSolid {
+				// For solid border, use spaces for better visibility
+				prefix = " "
+				suffix = " "
+			}
+
+			indexDisplay = prefix + displayChar + suffix
+		} else {
+			// If no index should be shown, display 3 horizontal border characters
+			var horizontalChar rune
+			switch border {
+			case BorderSingle:
+				horizontalChar = RuneHLine
+			case BorderDouble:
+				horizontalChar = RuneDoubleHLine
+			case BorderSolid:
+				horizontalChar = RuneBlock
+			}
+
+			// Add three horizontal characters
+			for i := 0; i < 3; i++ {
+				indexDisplay += string(horizontalChar)
+			}
+		}
+
+		// Only draw the index display if there's enough space
+		if startX < rect.X+rect.Width-1 && rect.Width > 4 {
+			// Draw the index at the beginning of the top border
+			DrawText(screen, startX, rect.Y, currentBorderStyle, indexDisplay)
+		}
+
+		// Draw title if present, positioned after the index display
 		if title != "" {
-			titleX := rect.X + 2
-			titleMaxWidth := rect.Width - 4
+			titleX := startX + len(indexDisplay) + 1            // +1 for spacing
+			titleMaxWidth := rect.Width - len(indexDisplay) - 4 // Account for borders and spacing
 
 			if titleMaxWidth > 0 {
 				titleText := title
@@ -217,24 +280,6 @@ func (p *Pane) Draw(screen tcell.Screen, isFocused bool) {
 				}
 
 				DrawText(screen, titleX, rect.Y, currentBorderStyle, titleText)
-			}
-		}
-
-		// Draw index indicator if present and enabled
-		if index > 0 && showIndexIndicator && p.GetFirstFocusableComponent() != nil {
-			// Format index as string
-			indexStr := strconv.Itoa(index)
-			if index == 10 {
-				indexStr = "0" // Use 0 to represent 10 (for Alt+0)
-			}
-
-			// Position at top-right inside border
-			indexX := rect.X + rect.Width - 2
-			indexY := rect.Y
-
-			// Draw index only if there's enough space
-			if indexX > rect.X+1 && indexX < rect.X+rect.Width-1 {
-				DrawText(screen, indexX, indexY, currentBorderStyle, indexStr)
 			}
 		}
 	}

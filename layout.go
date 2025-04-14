@@ -97,12 +97,24 @@ func (l *Layout) AddPane(pane *Pane, size Size) int {
 		Active: true,
 	}
 
-	// Set pane's index (1-based for user-facing index)
-	pane.SetIndex(index + 1)
+	// Check if this is the application's main layout - more robust check
+	isMainLayout := false
+	if l.app != nil && l.app.layout == l {
+		isMainLayout = true
+	}
 
-	// Set pane's application
+	// Set pane's application (this must come before setting index)
 	if l.app != nil {
 		pane.SetApplication(l.app)
+	}
+
+	// Only assign an index to top-level panes (panes directly under the app's main layout)
+	if isMainLayout {
+		// Set pane's index (1-based for user-facing index)
+		pane.SetIndex(index + 1)
+	} else {
+		// For nested layouts, explicitly set to -1 to disable indexing
+		pane.SetIndex(-1)
 	}
 
 	l.activeCount++
