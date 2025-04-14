@@ -14,10 +14,10 @@ const (
 	ColorGreen         Color = tcell.ColorGreen
 	ColorYellow        Color = tcell.ColorYellow
 	ColorBlue          Color = tcell.ColorBlue
-	ColorMagenta       Color = tcell.ColorDarkMagenta // User corrected
-	ColorCyan          Color = tcell.ColorLightCyan   // User corrected
+	ColorMagenta       Color = tcell.ColorDarkMagenta
+	ColorCyan          Color = tcell.ColorLightCyan
 	ColorWhite         Color = tcell.ColorWhite
-	ColorGray          Color = tcell.ColorGray // Note: tcell names might differ slightly
+	ColorGray          Color = tcell.ColorGray
 	ColorDarkGray      Color = tcell.ColorDarkGray
 	ColorLightGray     Color = tcell.ColorLightGray
 	ColorSilver        Color = tcell.ColorSilver
@@ -39,11 +39,9 @@ const (
 	ColorLightCyan     Color = tcell.ColorLightCyan
 	ColorLightGreen    Color = tcell.ColorLightGreen
 	ColorLightYellow   Color = tcell.ColorLightYellow
-	// Add more named colors as needed
 )
 
 // Style represents the display style of a cell (foreground, background, attributes).
-// It currently wraps tcell.Style.
 type Style struct {
 	tcellStyle tcell.Style
 }
@@ -58,8 +56,8 @@ const (
 	AttrReverse   AttrMask = tcell.AttrReverse
 	AttrUnderline AttrMask = tcell.AttrUnderline
 	AttrDim       AttrMask = tcell.AttrDim
-	AttrItalic    AttrMask = tcell.AttrItalic        // Requires modern terminal support
-	AttrStrike    AttrMask = tcell.AttrStrikeThrough // Requires modern terminal support
+	AttrItalic    AttrMask = tcell.AttrItalic
+	AttrStrike    AttrMask = tcell.AttrStrikeThrough
 	AttrNone      AttrMask = 0
 )
 
@@ -130,35 +128,26 @@ func (s Style) StrikeThrough(enable bool) Style {
 // It returns the foreground color, background color, and attributes.
 // It also returns a boolean indicating if the background color was explicitly set.
 func (s Style) Deconstruct() (fg Color, bg Color, attrs AttrMask, bgSet bool) {
-	// TODO: Modify Decompose in the future since it's deprecated (requires more complex implementation with tcell)
 	fg, bg, attrs = s.tcellStyle.Decompose()
-	// Check if the background color is different from the default background
-	// This is an approximation for whether it was explicitly set.
 	_, defaultBg, _ := tcell.StyleDefault.Decompose()
 	bgSet = (bg != defaultBg)
 	return fg, bg, attrs, bgSet
 }
 
-// GetStateStyle returns the appropriate style for a given widget state
-func (s Style) GetStateStyle(state WidgetState, focused bool) Style {
+// GetStateStyle returns the appropriate style for a given component state
+func (s Style) GetStateStyle(state State, focused bool) Style {
 	switch {
 	case focused && state == StateInteracted:
-		// Return focused+interacted style - using reverse and bold attributes by default
 		return s.Reverse(true).Bold(true)
 	case focused && state == StateSelected:
-		// Return focused+selected style - using reverse attribute by default
 		return s.Reverse(true)
 	case focused:
-		// Return focused style - using dim and underline attributes by default
 		return s.Dim(false).Underline(true)
 	case state == StateInteracted:
-		// Return interacted style - using bold attribute by default
 		return s.Bold(true)
 	case state == StateSelected:
-		// Return selected style - using dim and underline attributes by default
 		return s.Dim(true).Underline(true)
 	default:
-		// Return normal style
 		return s
 	}
 }
@@ -189,18 +178,7 @@ func (s Style) MergeWith(other Style) Style {
 	return result
 }
 
-// BorderType defines the style of border to draw.
-type BorderType int
-
-const (
-	BorderNone   BorderType = iota // No border
-	BorderSingle                   // Single line border (uses tcell.Rune HLine, VLine, etc.)
-	BorderDouble                   // Double line border (uses tcell.Rune DoubleHLine, DoubleVLine, etc.)
-	BorderSolid                    // Solid block border (uses block elements like █, ▀, ▄)
-)
-
-// ToTcell converts tinytui.Style to tcell.Style for internal use
-// or when direct screen manipulation is needed.
+// ToTcell converts Style to tcell.Style for internal use
 func (s Style) ToTcell() tcell.Style {
 	return s.tcellStyle
 }

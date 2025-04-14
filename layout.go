@@ -3,468 +3,424 @@ package tinytui
 
 import (
 	"github.com/gdamore/tcell/v2"
-	"sync"
 )
 
-// Orientation defines the direction children are laid out in a FlexLayout.
-type Orientation int
-
-const (
-	// Horizontal lays out children side-by-side.
-	Horizontal Orientation = iota
-	// Vertical lays out children one above the other.
-	Vertical
-)
-
-// ChildInfo holds a widget and its layout constraints within a FlexLayout.
-type ChildInfo struct {
-	Widget     Widget    // The child widget itself
-	FixedSize  int       // Fixed size (width for Horizontal, height for Vertical). 0 means use proportion.
-	Proportion int       // Proportion of the remaining flexible space to allocate. Minimum 1 if FixedSize is 0.
-	Alignment  Alignment // How this child aligns on the cross axis (overrides parent's crossAxisAlign)
+// Layout organizes panes on screen.
+type Layout struct {
+	panes          [10]PaneInfo // Fixed size array [0..9]
+	orientation    Orientation
+	gap            int
+	activeCount    int
+	mainAxisAlign  Alignment
+	crossAxisAlign Alignment
+	rect           Rect
+	app            *Application
 }
 
-// Alignment defines how items are aligned along a layout axis.
-type Alignment int
-
-const (
-	// AlignStart aligns items at the start (top/left)
-	AlignStart Alignment = iota
-	// AlignCenter centers items within the available space
-	AlignCenter
-	// AlignEnd aligns items at the end (bottom/right)
-	AlignEnd
-	// AlignStretch stretches items to fill the container (default)
-	AlignStretch
-)
-
-// FlexLayout arranges child widgets horizontally or vertically.
-// It distributes space based on fixed sizes and proportions.
-type FlexLayout struct {
-	BaseWidget               // Embed BaseWidget for common widget functionality
-	orientation Orientation  // How to arrange children (Horizontal or Vertical)
-	children    []*ChildInfo // List of child widgets and their layout info
-	gap         int          // Gap between children
-
-	// Alignment properties
-	mainAxisAlign  Alignment // Alignment along the main axis (horizontal for Horizontal, vertical for Vertical)
-	crossAxisAlign Alignment // Alignment along the cross axis (vertical for Horizontal, horizontal for Vertical)
-
-	mu sync.RWMutex // Protect concurrent access to properties
+// PaneInfo holds a pane and its layout constraints.
+type PaneInfo struct {
+	Pane   *Pane
+	Size   Size
+	Active bool // Is this slot used?
 }
 
-// NewFlexLayout creates a new layout container with default alignments.
-func NewFlexLayout(orientation Orientation) *FlexLayout {
-	l := &FlexLayout{
+// NewLayout creates a new layout with the specified orientation.
+func NewLayout(orientation Orientation) *Layout {
+	return &Layout{
 		orientation:    orientation,
-		children:       make([]*ChildInfo, 0),
-		gap:            0,
-		mainAxisAlign:  AlignStart,   // Default: items start at beginning
-		crossAxisAlign: AlignStretch, // Default: stretch items in cross-axis
+		gap:            1,
+		activeCount:    0,
+		mainAxisAlign:  AlignStart,
+		crossAxisAlign: AlignStretch,
 	}
-	l.SetVisible(true) // Explicitly set visibility
-	return l
 }
 
-// ApplyTheme applies the provided theme to the FlexLayout widget
-// FlexLayout doesn't have visual styles of its own, so it just passes the theme to children
-func (l *FlexLayout) ApplyTheme(theme Theme) {
-	// FlexLayout doesn't have its own style to update
-	// Children will be handled by the recursive application logic
-}
+// SetApplication sets the application this layout belongs to.
+func (l *Layout) SetApplication(app *Application) {
+	l.app = app
 
-// AddChild adds a widget to the layout.
-//   - widget: The Widget to add.
-//   - fixedSize: The fixed width (if Horizontal) or height (if Vertical).
-//     Set to 0 to use proportional sizing.
-//   - proportion: The proportion of flexible space to assign (used if fixedSize is 0).
-//     Must be at least 1 if fixedSize is 0.
-func (l *FlexLayout) AddChild(widget Widget, fixedSize int, proportion int) *FlexLayout {
-	if widget == nil {
-		return l // Ignore nil widgets
-	}
-
-	// Ensure proportion is valid if fixedSize is 0
-	prop := proportion
-	if fixedSize == 0 && prop < 1 {
-		prop = 1
-	}
-
-	info := &ChildInfo{
-		Widget:     widget,
-		FixedSize:  fixedSize,
-		Proportion: prop,
-	}
-	l.children = append(l.children, info)
-
-	// --- Link Child to Parent and Application ---
-	widget.SetParent(l) // <-- Set the layout as the parent
-	if app := l.App(); app != nil {
-		widget.SetApplication(app) // Propagate app pointer if layout already has one
-	}
-	// --- End Link ---
-
-	// Request redraw if the layout is already part of an application
-	if app := l.App(); app != nil {
-		app.QueueRedraw()
-	}
-	return l
-}
-
-// SetApplication sets the application pointer for the layout and its children.
-// Overrides BaseWidget.SetApplication to propagate to existing children.
-// Also ensures parent links are set correctly if children were added before SetApplication.
-func (l *FlexLayout) SetApplication(app *Application) {
-	l.BaseWidget.SetApplication(app) // Call embedded method first
-	// Propagate to any children added *before* the layout was added to the app
-	for _, info := range l.children {
-		info.Widget.SetApplication(app)
-		// Ensure parent is set here too, in case AddChild happened before SetApplication
-		// Although AddChild should handle it, this adds robustness.
-		if info.Widget.Parent() == nil {
-			info.Widget.SetParent(l)
+	// Propagate application to all panes
+	for i := range l.panes {
+		if l.panes[i].Active && l.panes[i].Pane != nil {
+			l.panes[i].Pane.SetApplication(app)
 		}
 	}
 }
 
-// Modified SetRect to handle alignment
-func (l *FlexLayout) SetRect(x, y, width, height int) {
-	l.BaseWidget.SetRect(x, y, width, height) // Store our own rect
-
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	// Filter visible children
-	visibleChildren := make([]*ChildInfo, 0, len(l.children))
-	for _, info := range l.children {
-		if info.Widget != nil && info.Widget.IsVisible() {
-			visibleChildren = append(visibleChildren, info)
-		} else if info.Widget != nil {
-			info.Widget.SetRect(x, y, 0, 0)
-		}
-	}
-
-	numVisibleChildren := len(visibleChildren)
-	if numVisibleChildren == 0 {
+// SetRect sets the layout's position and size.
+func (l *Layout) SetRect(x, y, width, height int) {
+	// Only process if dimensions actually changed
+	if l.rect.X == x && l.rect.Y == y && l.rect.Width == width && l.rect.Height == height {
 		return
 	}
 
-	// Calculate sizes for each child first
-	sizes := make([]int, numVisibleChildren)
+	l.rect = Rect{X: x, Y: y, Width: width, Height: height}
 
-	totalFixedSize := 0
-	totalProportion := 0
-	flexibleChildrenCount := 0
+	// Calculate layout for all panes
+	l.calculateLayout()
+}
 
-	// Calculate total fixed size and proportion
-	for i, info := range visibleChildren {
-		if info.FixedSize > 0 {
-			sizes[i] = info.FixedSize
-			totalFixedSize += info.FixedSize
-		} else {
-			totalProportion += info.Proportion
-			flexibleChildrenCount++
+// GetRect returns the layout's position and size.
+func (l *Layout) GetRect() (x, y, width, height int) {
+	return l.rect.X, l.rect.Y, l.rect.Width, l.rect.Height
+}
+
+// AddPane adds a pane at the first available index.
+// Returns the index (0-9) or -1 if no slots are available.
+func (l *Layout) AddPane(pane *Pane, size Size) int {
+	if pane == nil {
+		return -1
+	}
+
+	// Validate size
+	if size.FixedSize <= 0 && size.Proportion <= 0 {
+		size.Proportion = 1 // Default to proportion 1
+	}
+
+	// Find first available slot
+	index := -1
+	for i := range l.panes {
+		if !l.panes[i].Active {
+			index = i
+			break
 		}
 	}
 
-	// Calculate total gap space
-	totalGap := 0
-	if numVisibleChildren > 1 {
-		totalGap = l.gap * (numVisibleChildren - 1)
+	if index == -1 {
+		return -1 // No slots available
 	}
 
-	// Calculate available space for proportional items
-	var availableSpace int
+	// Store pane in the slot
+	l.panes[index] = PaneInfo{
+		Pane:   pane,
+		Size:   size,
+		Active: true,
+	}
+
+	// Set pane's index (1-based for user-facing index)
+	pane.SetIndex(index + 1)
+
+	// Set pane's application
+	if l.app != nil {
+		pane.SetApplication(l.app)
+	}
+
+	l.activeCount++
+
+	// Recalculate layout
+	l.calculateLayout()
+
+	return index
+}
+
+// RemovePane removes a pane by its array index (0-9).
+func (l *Layout) RemovePane(index int) {
+	if index < 0 || index >= 10 {
+		return
+	}
+
+	if !l.panes[index].Active {
+		return // Slot is already inactive
+	}
+
+	// Clear pane's index
+	if l.panes[index].Pane != nil {
+		l.panes[index].Pane.SetIndex(-1)
+	}
+
+	// Mark slot as inactive
+	l.panes[index].Active = false
+	l.panes[index].Pane = nil
+	l.activeCount--
+
+	// Recalculate layout
+	l.calculateLayout()
+}
+
+// SetGap sets the gap between panes.
+func (l *Layout) SetGap(gap int) {
+	if gap < 0 {
+		gap = 0
+	}
+
+	if l.gap != gap {
+		l.gap = gap
+		l.calculateLayout()
+	}
+}
+
+// SetMainAxisAlignment sets how panes are aligned along the main axis.
+func (l *Layout) SetMainAxisAlignment(align Alignment) {
+	if l.mainAxisAlign != align {
+		l.mainAxisAlign = align
+		l.calculateLayout()
+	}
+}
+
+// SetCrossAxisAlignment sets how panes are aligned along the cross axis.
+func (l *Layout) SetCrossAxisAlignment(align Alignment) {
+	if l.crossAxisAlign != align {
+		l.crossAxisAlign = align
+		l.calculateLayout()
+	}
+}
+
+// calculateLayout determines pane positions based on layout constraints.
+func (l *Layout) calculateLayout() {
+	// Skip if no panes or invalid dimensions
+	if l.activeCount == 0 || l.rect.Width <= 0 || l.rect.Height <= 0 {
+		return
+	}
+
+	// Calculate total fixed size and proportion
+	totalFixedSize := 0
+	totalProportion := 0
+
+	for i := range l.panes {
+		if !l.panes[i].Active || l.panes[i].Pane == nil {
+			continue
+		}
+
+		size := l.panes[i].Size
+		if size.FixedSize > 0 {
+			totalFixedSize += size.FixedSize
+		} else {
+			totalProportion += size.Proportion
+		}
+	}
+
+	// Calculate gaps
+	totalGapSize := 0
+	if l.activeCount > 1 {
+		totalGapSize = l.gap * (l.activeCount - 1)
+	}
+
+	// Calculate available space for proportional panes
+	availableSpace := 0
 	if l.orientation == Horizontal {
-		availableSpace = width - totalFixedSize - totalGap
+		availableSpace = l.rect.Width - totalFixedSize - totalGapSize
 	} else {
-		availableSpace = height - totalFixedSize - totalGap
+		availableSpace = l.rect.Height - totalFixedSize - totalGapSize
 	}
 
 	if availableSpace < 0 {
 		availableSpace = 0
 	}
 
-	// Calculate sizes for proportional children
-	if totalProportion > 0 && availableSpace > 0 {
-		spacePerProportion := availableSpace / totalProportion
-		remainder := availableSpace % totalProportion
-
-		spaceAllocatedToFlex := 0
-
-		for i, info := range visibleChildren {
-			if info.FixedSize <= 0 {
-				size := info.Proportion * spacePerProportion
-				if remainder > 0 {
-					size++
-					remainder--
-				}
-
-				spaceAllocatedToFlex += size
-				if spaceAllocatedToFlex > availableSpace {
-					diff := spaceAllocatedToFlex - availableSpace
-					size -= diff
-					spaceAllocatedToFlex -= diff
-				}
-
-				sizes[i] = max(0, size)
-			}
-		}
-	}
-
-	// Calculate offsets for main axis alignment
+	// Calculate offsets based on main axis alignment
 	mainAxisOffset := 0
-	if l.mainAxisAlign != AlignStart {
-		totalContentSize := totalFixedSize + availableSpace + totalGap
-
-		mainAxisSpace := 0
-		if l.orientation == Horizontal {
-			mainAxisSpace = width - totalContentSize
-		} else {
-			mainAxisSpace = height - totalContentSize
-		}
-
-		if mainAxisSpace > 0 {
-			if l.mainAxisAlign == AlignCenter {
-				mainAxisOffset = mainAxisSpace / 2
-			} else if l.mainAxisAlign == AlignEnd {
-				mainAxisOffset = mainAxisSpace
-			}
+	if l.mainAxisAlign != AlignStart && availableSpace > 0 {
+		switch l.mainAxisAlign {
+		case AlignCenter:
+			mainAxisOffset = availableSpace / 2
+		case AlignEnd:
+			mainAxisOffset = availableSpace
 		}
 	}
 
-	// Calculate starting position
+	// Calculate pane positions and sizes
 	currentPos := mainAxisOffset
 	if l.orientation == Horizontal {
-		currentPos += x
+		currentPos += l.rect.X
 	} else {
-		currentPos += y
+		currentPos += l.rect.Y
 	}
 
-	// Position each child based on alignments, ensuring they don't exceed container bounds
-	for i, info := range visibleChildren {
-		childWidth := width
-		childHeight := height
-		childX := x
-		childY := y
+	for i := range l.panes {
+		if !l.panes[i].Active || l.panes[i].Pane == nil {
+			continue
+		}
+
+		// Calculate size along main axis
+		paneMainSize := 0
+		size := l.panes[i].Size
+
+		if size.FixedSize > 0 {
+			paneMainSize = size.FixedSize
+		} else if totalProportion > 0 {
+			// Calculate proportional size
+			proportion := float64(size.Proportion) / float64(totalProportion)
+			paneMainSize = int(float64(availableSpace) * proportion)
+
+			// Ensure we don't create panes that are too small
+			if paneMainSize < 3 {
+				paneMainSize = 3 // Minimum size to accommodate borders
+			}
+		}
+
+		// Calculate cross-axis position and size
+		var paneX, paneY, paneWidth, paneHeight int
 
 		if l.orientation == Horizontal {
-			// In horizontal layout, width is the child's size
-			childWidth = sizes[i]
+			paneX = currentPos
+			paneWidth = paneMainSize
 
-			// Set horizontal position
-			childX = currentPos
-
-			// Calculate vertical position based on cross-axis alignment
-			childAlign := l.crossAxisAlign
-			if info.Alignment != AlignStretch { // Use child's own alignment if specified
-				childAlign = info.Alignment
+			switch l.crossAxisAlign {
+			case AlignStart:
+				paneY = l.rect.Y
+				paneHeight = l.rect.Height
+			case AlignCenter:
+				paneY = l.rect.Y
+				paneHeight = l.rect.Height
+			case AlignEnd:
+				paneY = l.rect.Y
+				paneHeight = l.rect.Height
+			case AlignStretch:
+				paneY = l.rect.Y
+				paneHeight = l.rect.Height
 			}
 
-			if childAlign == AlignStart {
-				childY = y
-			} else if childAlign == AlignCenter {
-				// Only center if not stretching
-				childHeight = min(height, getPreferredHeight(info.Widget))
-				childY = y + (height-childHeight)/2
-			} else if childAlign == AlignEnd {
-				// Only align to end if not stretching
-				childHeight = min(height, getPreferredHeight(info.Widget))
-				childY = y + height - childHeight
-			}
-			// AlignStretch uses full height
+			currentPos += paneWidth + l.gap
 
-			// Move to next position
-			currentPos += childWidth + l.gap
-		} else {
-			// In vertical layout, height is the child's size
-			childHeight = sizes[i]
+		} else { // Vertical orientation
+			paneY = currentPos
+			paneHeight = paneMainSize
 
-			// Set vertical position
-			childY = currentPos
-
-			// Calculate horizontal position based on cross-axis alignment
-			childAlign := l.crossAxisAlign
-			if info.Alignment != AlignStretch { // Use child's own alignment if specified
-				childAlign = info.Alignment
+			switch l.crossAxisAlign {
+			case AlignStart:
+				paneX = l.rect.X
+				paneWidth = l.rect.Width
+			case AlignCenter:
+				paneX = l.rect.X
+				paneWidth = l.rect.Width
+			case AlignEnd:
+				paneX = l.rect.X
+				paneWidth = l.rect.Width
+			case AlignStretch:
+				paneX = l.rect.X
+				paneWidth = l.rect.Width
 			}
 
-			if childAlign == AlignStart {
-				childX = x
-			} else if childAlign == AlignCenter {
-				// Only center if not stretching
-				childWidth = min(width, getPreferredWidth(info.Widget))
-				childX = x + (width-childWidth)/2
-			} else if childAlign == AlignEnd {
-				// Only align to end if not stretching
-				childWidth = min(width, getPreferredWidth(info.Widget))
-				childX = x + width - childWidth
-			}
-			// AlignStretch uses full width
-
-			// Move to next position
-			currentPos += childHeight + l.gap
+			currentPos += paneHeight + l.gap
 		}
 
-		// Ensure we don't allocate more space than the container has
-		if childX+childWidth > x+width {
-			childWidth = (x + width) - childX
+		// Ensure panes don't extend beyond the layout's rect
+		if paneX+paneWidth > l.rect.X+l.rect.Width {
+			paneWidth = l.rect.X + l.rect.Width - paneX
 		}
-		if childY+childHeight > y+height {
-			childHeight = (y + height) - childY
+		if paneY+paneHeight > l.rect.Y+l.rect.Height {
+			paneHeight = l.rect.Y + l.rect.Height - paneY
 		}
 
-		// Apply the calculated position and size
-		if childWidth > 0 && childHeight > 0 {
-			info.Widget.SetRect(childX, childY, childWidth, childHeight)
-		} else {
-			// If dimensions are invalid, set to zero size to prevent drawing
-			info.Widget.SetRect(childX, childY, 0, 0)
-		}
+		// Set pane's position and size
+		l.panes[i].Pane.SetRect(paneX, paneY, paneWidth, paneHeight)
 	}
 }
 
-// Helper function for preferred sizing
-func getPreferredWidth(w Widget) int {
-	if widget, ok := w.(interface{ PreferredWidth() int }); ok {
-		return widget.PreferredWidth()
-	}
-	return 10 // Default fallback
-}
-
-func getPreferredHeight(w Widget) int {
-	if widget, ok := w.(interface{ PreferredHeight() int }); ok {
-		return widget.PreferredHeight()
-	}
-	return 1 // Default fallback
-}
-
-// SetMainAxisAlignment sets how items are aligned along the main axis.
-func (l *FlexLayout) SetMainAxisAlignment(align Alignment) *FlexLayout {
-	l.mu.Lock()
-	l.mainAxisAlign = align
-	l.mu.Unlock()
-
-	if app := l.App(); app != nil {
-		app.QueueRedraw()
-	}
-	return l
-}
-
-// SetCrossAxisAlignment sets the default alignment of items along the cross axis.
-func (l *FlexLayout) SetCrossAxisAlignment(align Alignment) *FlexLayout {
-	l.mu.Lock()
-	l.crossAxisAlign = align
-	l.mu.Unlock()
-
-	if app := l.App(); app != nil {
-		app.QueueRedraw()
-	}
-	return l
-}
-
-// AddChildWithAlign adds a widget to the layout with specific alignment.
-func (l *FlexLayout) AddChildWithAlign(widget Widget, fixedSize int, proportion int, align Alignment) *FlexLayout {
-	if widget == nil {
-		return l // Ignore nil widgets
-	}
-
-	// Ensure proportion is valid if fixedSize is 0
-	prop := proportion
-	if fixedSize == 0 && prop < 1 {
-		prop = 1
-	}
-
-	info := &ChildInfo{
-		Widget:     widget,
-		FixedSize:  fixedSize,
-		Proportion: prop,
-		Alignment:  align,
-	}
-
-	l.mu.Lock()
-	l.children = append(l.children, info)
-	l.mu.Unlock()
-
-	// Link Child to Parent and Application
-	widget.SetParent(l)
-	if app := l.App(); app != nil {
-		widget.SetApplication(app)
-	}
-
-	// Request redraw if the layout is already part of an application
-	if app := l.App(); app != nil {
-		app.QueueRedraw()
-	}
-	return l
-}
-
-// SetGap sets the gap size between children.
-func (l *FlexLayout) SetGap(gap int) *FlexLayout {
-	if gap < 0 {
-		gap = 0 // Ensure gap is not negative
-	}
-	if l.gap == gap {
-		return l // No change
-	}
-	l.gap = gap
-	if app := l.App(); app != nil {
-		app.QueueRedraw() // Changing gap requires redraw
-	}
-	return l
-}
-
-// Draw iterates through the children and calls their Draw methods.
-// It relies on SetRect having already positioned the children correctly.
-func (l *FlexLayout) Draw(screen tcell.Screen) {
-	l.BaseWidget.Draw(screen)
-
-	// Draw children (BaseWidget.Draw handles visibility check for each child)
-	for _, info := range l.children {
-		// No need for explicit visibility check here, child.Draw handles it.
-		_, _, cw, ch := info.Widget.GetRect()
-		if cw > 0 && ch > 0 { // Still draw only if it has dimensions
-			info.Widget.Draw(screen)
+// Draw draws all active panes.
+func (l *Layout) Draw(screen tcell.Screen) {
+	// Make a copy of active panes to avoid holding lock during drawing
+	var activePanes []*Pane
+	for i := range l.panes {
+		if l.panes[i].Active && l.panes[i].Pane != nil {
+			activePanes = append(activePanes, l.panes[i].Pane)
 		}
 	}
+	app := l.app // Copy app reference
+
+	for _, pane := range activePanes {
+		// Check if this pane contains the focused component
+		isChildFocused := false
+
+		if app != nil {
+			isChildFocused = l.isPaneFocused(pane)
+		}
+
+		pane.Draw(screen, isChildFocused)
+	}
 }
 
-// HandleEvent currently does nothing for the layout itself.
-// It relies on the event bubbling mechanism starting from the focused child.
-// If the layout itself needed keybindings, they would be set via SetKeybinding.
-func (l *FlexLayout) HandleEvent(event tcell.Event) bool {
-	// Let BaseWidget handle its own keybindings, if any were set on the layout itself.
-	return l.BaseWidget.HandleEvent(event)
-}
+// isPaneFocused checks if the pane contains the focused component.
+func (l *Layout) isPaneFocused(pane *Pane) bool {
+	if l.app == nil || pane == nil {
+		return false
+	}
 
-// Focusable returns false, as the layout container itself is not focusable by default.
-func (l *FlexLayout) Focusable() bool {
+	// Get focused component from app
+	focusedComp := l.app.GetFocusedComponent()
+	if focusedComp == nil {
+		return false
+	}
+
+	// Get all components in the pane - this might still acquire locks
+	// but we're outside of the layout lock
+	paneComps := pane.GetAllComponents()
+
+	// Check if focused component is in this pane
+	for _, comp := range paneComps {
+		if comp == focusedComp {
+			return true
+		}
+	}
+
 	return false
 }
 
-// Focus does nothing for the layout container.
-func (l *FlexLayout) Focus() {
-	// No-op
-}
-
-// Blur does nothing for the layout container.
-func (l *FlexLayout) Blur() {
-	// No-op
-}
-
-// Children returns the widgets managed by this layout.
-// Required by the Widget interface for focus traversal and event bubbling checks.
-// --- No change needed here, returns all children regardless of visibility ---
-func (l *FlexLayout) Children() []Widget {
-	widgets := make([]Widget, len(l.children))
-	for i, info := range l.children {
-		widgets[i] = info.Widget
+// GetPaneByIndex returns the pane with the given user-facing index (1-10).
+// Returns nil if no pane has that index.
+func (l *Layout) GetPaneByIndex(userIndex int) *Pane {
+	if userIndex < 1 || userIndex > 10 {
+		return nil
 	}
-	return widgets
+
+	// Convert to array index (0-9)
+	index := userIndex - 1
+
+	if !l.panes[index].Active {
+		return nil
+	}
+
+	return l.panes[index].Pane
 }
 
-// Parent returns the layout's parent (set via SetParent).
-// Relies on embedded BaseWidget's implementation.
+// GetAllFocusableComponents returns all focusable components in all panes.
+func (l *Layout) GetAllFocusableComponents() []Component {
+	var focusables []Component
 
-// SetParent sets the layout's parent.
-// Relies on embedded BaseWidget's implementation.
+	for i := range l.panes {
+		if !l.panes[i].Active || l.panes[i].Pane == nil {
+			continue
+		}
+
+		// Get focusable components from this pane
+		comps := l.panes[i].Pane.GetFocusableComponents()
+		focusables = append(focusables, comps...)
+	}
+
+	return focusables
+}
+
+// HasDirtyComponents checks if any pane or component needs redrawing.
+func (l *Layout) HasDirtyComponents() bool {
+	// Create a list of panes to check outside of lock
+	var panesToCheck []*Pane
+	for i := range l.panes {
+		if l.panes[i].Active && l.panes[i].Pane != nil {
+			panesToCheck = append(panesToCheck, l.panes[i].Pane)
+		}
+	}
+
+	// Check dirty state outside of lock
+	for _, pane := range panesToCheck {
+		if pane.IsDirty() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ClearAllDirtyFlags clears dirty flags for all components recursively.
+func (l *Layout) ClearAllDirtyFlags() {
+	var panes []*Pane
+	for i := range l.panes {
+		if l.panes[i].Active && l.panes[i].Pane != nil {
+			panes = append(panes, l.panes[i].Pane)
+		}
+	}
+
+	// Clear dirty flags outside of lock
+	for _, pane := range panes {
+		pane.ClearDirtyFlags()
+	}
+}
