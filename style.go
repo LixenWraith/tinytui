@@ -166,26 +166,6 @@ func (s Style) Deconstruct() (fg Color, bg Color, attrs AttrMask, bgSet bool) {
 	return fg, bg, attrs, bgSet
 }
 
-// GetStateStyle applies a generic transformation to a style based on component state and focus.
-// Deprecated: Themes provide more specific and configurable styles (e.g., theme.GridFocusedSelectedStyle()).
-// This remains as a fallback or potentially for simple custom components not using themes heavily.
-func (s Style) GetStateStyle(state State, focused bool) Style {
-	switch {
-	case focused && state == StateInteracted:
-		return s.Reverse(true).Bold(true) // Example: Focused + Interacted = Reverse + Bold
-	case focused && state == StateSelected:
-		return s.Reverse(true) // Example: Focused + Selected = Reverse
-	case focused: // Focused but Normal state
-		return s // Example: Focused + Normal = No change from base
-	case state == StateInteracted: // Unfocused + Interacted
-		return s.Bold(true) // Example: Unfocused + Interacted = Bold
-	case state == StateSelected: // Unfocused + Selected
-		return s.Dim(true) // Example: Unfocused + Selected = Dim
-	default: // Normal, unfocused
-		return s // No change
-	}
-}
-
 // MergeWith creates a new style by overlaying the properties of 'other' onto 's'.
 // - Foreground: Uses 'other' foreground if it's not ColorDefault, otherwise uses 's' foreground.
 // - Background: Uses 'other' background if it's explicitly set (`bgSet` is true for 'other'), otherwise uses 's' background.

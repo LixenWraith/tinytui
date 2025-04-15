@@ -454,37 +454,6 @@ func (l *Layout) calculateLayout() {
 	}
 }
 
-// countTopLevelFocusablePanes counts the number of direct child panes of this layout
-// that contain at least one focusable component. It also returns the index of the
-// pane if exactly one such pane is found.
-func (l *Layout) countTopLevelFocusablePanes() (count int, singlePaneIndex int) {
-	count = 0
-	singlePaneIndex = -1 // Initialize to invalid index
-
-	// Only consider panes directly managed by *this* layout
-	isRootLayout := l.app != nil && l.app.GetLayout() == l
-	if !isRootLayout {
-		// If this isn't the root layout, the single-pane rule doesn't apply here.
-		return 0, -1
-	}
-
-	for i := range l.panes {
-		if l.panes[i].Active && l.panes[i].Pane != nil {
-			if l.panes[i].Pane.HasFocusableChild() {
-				count++
-				singlePaneIndex = i + 1 // Store the user-facing index (1-based)
-			}
-		}
-	}
-
-	// If count is not exactly 1, reset singlePaneIndex to invalid
-	if count != 1 {
-		singlePaneIndex = -1
-	}
-
-	return count, singlePaneIndex
-}
-
 // Draw draws the layout background and its active panes.
 func (l *Layout) Draw(screen tcell.Screen) {
 	if l.rect.Width <= 0 || l.rect.Height <= 0 {
@@ -539,7 +508,7 @@ func (l *Layout) GetPaneBySlotIndex(slotIndex int) *Pane {
 func (l *Layout) GetPaneByNavIndex(navIndex int) *Pane {
 	if navIndex < 1 || navIndex > 10 {
 		return nil
-	} // Validate nav index range
+	}                        // Validate nav index range
 	for i := range l.panes { // Check in slot order (0-9)
 		if l.panes[i].Active && l.panes[i].Pane != nil {
 			if l.panes[i].Pane.GetNavIndex() == navIndex {
