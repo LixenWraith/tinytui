@@ -326,6 +326,10 @@ func (t *TextInput) updateVisualOffset() {
 		return
 	}
 
+	if t.visualOffset >= len(t.buffer) {
+		t.visualOffset = max(0, len(t.buffer)-1)
+	}
+
 	// --- Check if cursor is outside the current view [visualOffset, visualOffset + width) ---
 
 	// Case 1: Cursor is to the left of the visible area (cursorPos < visualOffset)

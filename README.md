@@ -7,15 +7,16 @@ A lightweight Terminal User Interface (TUI) library for Go applications, built o
 - **Component-Based Architecture**: Modular design with reusable UI components
 - **Flexible Layout System**: Arrange components using horizontal and vertical layouts with various sizing options
 - **Event Handling**: Process keyboard input, handle focus navigation, and dispatch commands
-- **Theming Support**: Customize colors and styles with built-in themes (Default and Turbo)
+- **Modern Theming**: Three built-in themes including Tokyo Night + KDE Sweet inspired design
 - **Rich Component Library**:
-    - Text display with optional wrapping and alignment
-    - Text input fields with cursor navigation and editing
-    - Grid for data display with selection and interaction
-    - Custom sprite rendering for graphics
-    - Panes with optional borders and titles
+  - Text display with optional wrapping and alignment
+  - Text input fields with cursor navigation and editing
+  - Grid for data display with selection and interaction
+  - Custom sprite rendering for graphics
+  - Panes with optional borders and titles
 - **Command Pattern**: Decouple UI events from application logic
 - **Focus Management**: Tab navigation and Alt+Number quick access to panes
+- **Thread-Safe**: Proper synchronization for concurrent operations
 
 ## Installation
 
@@ -89,7 +90,7 @@ The `Application` is the root object that manages the screen, event loop, and co
 ```go
 app := tinytui.NewApplication()
 app.SetScreenMode(tinytui.ScreenAlternate) // Use alternate screen buffer
-app.SetTheme(tinytui.GetTheme())           // Set theme
+app.SetTheme("tokyo-sweet")                // Use modern Tokyo Night + KDE Sweet theme
 app.SetLayout(mainLayout)                  // Set root layout
 app.Run()                                  // Start event loop
 ```
@@ -151,12 +152,17 @@ app.Dispatch(&tinytui.FocusCommand{Target: myInput})
 
 ### Styling and Theming
 
-TinyTUI provides a theming system for consistent styling across the application:
+TinyTUI provides a comprehensive theming system with three built-in themes:
+
+1. **Default**: Modern light theme with improved contrast
+2. **Turbo**: Classic Turbo Vision-inspired blue theme
+3. **Tokyo Sweet**: Modern dark theme inspired by Tokyo Night and KDE Sweet
 
 ```go
 // Use built-in themes
-tinytui.SetTheme(tinytui.ThemeTurbo)  // Switch to Turbo theme (blue background)
-app.SetTheme(tinytui.GetTheme())      // Apply to application
+app.SetTheme("tokyo-sweet")    // Modern dark theme (default)
+app.SetTheme("default")        // Light theme
+app.SetTheme("turbo")          // Classic blue theme
 
 // Create custom styles
 style := tinytui.DefaultStyle.Foreground(tinytui.ColorRed).Bold(true)
@@ -297,12 +303,21 @@ func (m *MyComponent) HandleEvent(event tcell.Event) bool {
 }
 ```
 
-## Example Programs
+## Thread Safety
 
-The package includes two example programs demonstrating various features:
+TinyTUI is designed with thread safety in mind:
 
-1. `main.go`: A comprehensive demo showcasing layouts, themes, input handling, and component interactions
-2. `main (1).go`: A focused example demonstrating navigation and component indexing
+- Theme manager uses RWMutex for concurrent access
+- Application state changes are serialized through the command pattern
+- Event dispatch happens in the main event loop
+- Components should only be modified through commands or in event handlers
+
+## Performance Considerations
+
+- Maximum FPS can be configured via `app.SetMaxFPS(fps)`
+- Dirty flag system ensures only changed components are redrawn
+- Layout calculations are cached until dimensions change
+- Wide character support with proper width calculations
 
 ## Dependencies
 
@@ -311,4 +326,4 @@ The package includes two example programs demonstrating various features:
 
 ## License
 
-BSD-3
+BSD-3-Clause

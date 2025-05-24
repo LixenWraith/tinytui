@@ -14,6 +14,8 @@ const (
 	ThemeDefault ThemeName = "default"
 	// ThemeTurbo is a theme inspired by Turbo Vision's classic blue-background look.
 	ThemeTurbo ThemeName = "turbo"
+	// ThemeTokyoSweet is a combination of KDE sweet and Tokyo night themes.
+	ThemeTokyoSweet ThemeName = "tokyo-sweet"
 )
 
 // Theme defines the interface for providing styles and properties for UI elements.
@@ -160,21 +162,17 @@ func GetTheme() Theme {
 // The callback is also executed immediately with the current theme upon successful registration.
 func SubscribeThemeChange(callback func(Theme)) {
 	if callback == nil {
-		return // Ignore nil callbacks
+		return
 	}
 
-	globalThemeManager.mu.Lock() // Acquire write lock to modify subscribers slice
-	defer globalThemeManager.mu.Unlock()
-
+	globalThemeManager.mu.Lock()
 	globalThemeManager.subscribers = append(globalThemeManager.subscribers, callback)
+	currentTheme := globalThemeManager.current
+	globalThemeManager.mu.Unlock()
 
-	// Call immediately with the current theme if one exists
-	if globalThemeManager.current != nil {
-		currentTheme := globalThemeManager.current
-		// Temporarily release lock for the immediate callback to prevent deadlocks
-		globalThemeManager.mu.Unlock()
+	// Call immediately with current theme outside the lock
+	if currentTheme != nil {
 		callback(currentTheme)
-		globalThemeManager.mu.Lock() // Re-acquire lock before returning
 	}
 }
 

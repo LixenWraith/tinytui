@@ -6,6 +6,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -15,6 +16,7 @@ type Application struct {
 	screen    tcell.Screen
 	layout    *Layout
 	cursorMgr *CursorManager
+	stopOnce  sync.Once
 
 	// Focus management
 	focusedComponent Component
@@ -422,14 +424,9 @@ func (app *Application) shutdown() error {
 
 // Stop signals the application to gracefully terminate the main loop. Idempotent.
 func (app *Application) Stop() {
-	select {
-	case <-app.stopChan:
-		// Already stopping or stopped
-		return
-	default:
-		// Close stopChan to signal all loops and goroutines
+	app.stopOnce.Do(func() {
 		close(app.stopChan)
-	}
+	})
 }
 
 // QueueRedraw requests a redraw on the next cycle of the event loop.

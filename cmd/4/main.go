@@ -262,8 +262,10 @@ func main() {
 		var statusMsg string
 
 		if currentThemeName == tinytui.ThemeDefault {
-			targetThemeName = tinytui.ThemeTurbo
-			statusMsg = "Theme changed to Turbo"
+			// targetThemeName = tinytui.ThemeTurbo
+			// statusMsg = "Theme changed to Turbo"
+			targetThemeName = tinytui.ThemeTokyoSweet
+			statusMsg = "Theme changed to Tokyo Sweet"
 		} else {
 			targetThemeName = tinytui.ThemeDefault
 			statusMsg = "Theme changed to Default"

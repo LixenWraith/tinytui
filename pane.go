@@ -25,6 +25,14 @@ type Pane struct {
 	dirty            bool         // Does the pane (border, title) or its child need redrawing?
 }
 
+// In your main file or a helpers file, if not in tinytui package:
+func NewWrapperPane(child Component) *Pane {
+	p := NewPane()
+	p.SetBorder(BorderNone, DefaultStyle) // No border, default style for background
+	p.SetChild(child)
+	return p
+}
+
 // NewPane creates a new pane, initializing styles and border from the current theme.
 func NewPane() *Pane {
 	theme := GetTheme()

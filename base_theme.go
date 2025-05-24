@@ -120,99 +120,13 @@ func (t *BaseTheme) FocusedBorderType() Border {
 	return t.focusedBorderType
 }
 
-// --- Concrete Theme Definitions ---
-
-// NewDefaultTheme creates the default light-background theme.
-func NewDefaultTheme() Theme {
-	baseStyle := DefaultStyle // Assumes DefaultStyle is Reset (fg/bg default)
-
-	// Define styles for different states
-	selectedStyle := baseStyle.Bold(true)                                                        // Simple bold for unfocused selection
-	interactedStyle := baseStyle.Foreground(ColorDarkGreen)                                      // Green text for unfocused interaction
-	focusedStyle := baseStyle                                                                    // No change for base cell when grid focused
-	focusedSelectedStyle := baseStyle.Background(ColorYellow).Foreground(ColorBlack).Bold(true)  // High contrast selection when focused
-	focusedInteractedStyle := baseStyle.Background(ColorGreen).Foreground(ColorBlack).Bold(true) // High contrast interaction when focused
-
-	return &BaseTheme{
-		name:                       ThemeDefault,
-		textStyle:                  baseStyle,
-		textSelectedStyle:          selectedStyle.Reverse(true), // Use reverse video for selected text areas
-		gridStyle:                  baseStyle,
-		gridSelectedStyle:          selectedStyle,
-		gridInteractedStyle:        interactedStyle,
-		gridFocusedStyle:           focusedStyle, // Focused grid uses base style for normal cells
-		gridFocusedSelectedStyle:   focusedSelectedStyle,
-		gridFocusedInteractedStyle: focusedInteractedStyle,
-		paneStyle:                  baseStyle,                                    // Pane background is default terminal bg
-		paneBorderStyle:            baseStyle,                                    // Pane border uses default terminal fg/bg
-		paneFocusBorderStyle:       baseStyle.Foreground(ColorYellow).Bold(true), // Focused border is yellow and bold
-		defaultBorderType:          BorderSingle,
-		focusedBorderType:          BorderSingle, // Focus doesn't change border type in default theme
-		defaultCellWidth:           10,
-		defaultCellHeight:          1,
-		indicatorColor:             ColorRed, // Selection indicator is red
-		defaultPadding:             1,        // 1 cell padding in grids
-	}
-}
-
-// NewTurboTheme creates a theme inspired by classic Turbo Vision (blue background).
-func NewTurboTheme() Theme {
-	// Base colors
-	bgColor := ColorDarkBlue
-	fgColor := ColorWhite
-	baseStyle := DefaultStyle.Background(bgColor).Foreground(fgColor)
-
-	// Selection colors (more distinct than default theme)
-	highlightBg := ColorLightCyan       // Use Cyan for focused selection BG
-	highlightFg := ColorBlack           // Black text on Cyan
-	unfocusedHighlightBg := bgColor     // Keep background same when unfocused
-	unfocusedHighlightFg := ColorYellow // Yellow text for unfocused selection
-
-	// Interaction colors (e.g., toggled buttons)
-	interactedBg := ColorGreen               // Use Green for focused interaction BG
-	interactedFg := ColorWhite               // White text on Green
-	unfocusedInteractedBg := bgColor         // Keep background same when unfocused
-	unfocusedInteractedFg := ColorLightGreen // Light green text for unfocused interaction
-
-	// Border colors
-	borderColor := ColorSilver      // Use Silver for normal borders
-	borderFocusColor := ColorYellow // Use Yellow for focused borders
-
-	// Define state styles based on colors
-	selectedStyle := DefaultStyle.Background(unfocusedHighlightBg).Foreground(unfocusedHighlightFg).Bold(true)
-	interactedStyle := DefaultStyle.Background(unfocusedInteractedBg).Foreground(unfocusedInteractedFg).Bold(true)
-	focusedStyle := baseStyle // Base style when grid is focused but cell is normal
-	focusedSelectedStyle := DefaultStyle.Background(highlightBg).Foreground(highlightFg).Bold(true)
-	focusedInteractedStyle := DefaultStyle.Background(interactedBg).Foreground(interactedFg).Bold(true)
-
-	return &BaseTheme{
-		name:                       ThemeTurbo,
-		textStyle:                  baseStyle,
-		textSelectedStyle:          selectedStyle.Reverse(true), // Use reverse of the unfocused selected style for text areas
-		gridStyle:                  baseStyle,
-		gridSelectedStyle:          selectedStyle,
-		gridInteractedStyle:        interactedStyle,
-		gridFocusedStyle:           focusedStyle,
-		gridFocusedSelectedStyle:   focusedSelectedStyle,
-		gridFocusedInteractedStyle: focusedInteractedStyle,
-		paneStyle:                  baseStyle,                                         // Pane background uses theme base
-		paneBorderStyle:            baseStyle.Foreground(borderColor),                 // Use theme bg, specific border fg
-		paneFocusBorderStyle:       baseStyle.Foreground(borderFocusColor).Bold(true), // Use theme bg, specific focus border fg + bold
-		defaultBorderType:          BorderSingle,                                      // Default to single border
-		focusedBorderType:          BorderDouble,                                      // Use double border when focused
-		defaultCellWidth:           10,
-		defaultCellHeight:          1,
-		indicatorColor:             ColorRed, // Keep indicator red for high visibility
-		defaultPadding:             1,        // Keep 1 cell padding
-	}
-}
-
 // Initialize and register themes when the package loads.
 // This ensures themes are available before NewApplication is called.
 func init() {
-	// Register default themes
+	// Register bundled themes
 	RegisterTheme(NewDefaultTheme())
 	RegisterTheme(NewTurboTheme())
+	RegisterTheme(NewTokyoSweetTheme())
 
 	// Set the default global theme (can be overridden by application via SetTheme)
 	// SetTheme uses the global theme manager's mutex internally.

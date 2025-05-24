@@ -433,7 +433,7 @@ func (g *Grid) toggleCellInteraction() {
 		return // Cannot interact with invalid selection
 	}
 
-	cellKey := fmt.Sprintf("%d:%d", row, col)
+	cellKey := getCellKey(row, col)
 	currentlyInteracted := g.interactedCells[cellKey]
 	stateChanged := false
 
@@ -547,7 +547,7 @@ func (g *Grid) Draw(screen tcell.Screen) {
 
 			// Determine cell state
 			isSelected := (gridRow == selectedRow && gridCol == selectedCol)
-			cellKey := fmt.Sprintf("%d:%d", gridRow, gridCol)
+			cellKey := getCellKey(gridRow, gridCol)
 			isInteracted := interacted[cellKey]
 
 			// Determine cell style based on state and focus using the theme helper
@@ -755,7 +755,7 @@ func (g *Grid) IsCellInteracted(row, col int) bool {
 	if row < 0 || row >= len(g.cells) || col < 0 || col >= len(g.cells[row]) {
 		return false
 	}
-	cellKey := fmt.Sprintf("%d:%d", row, col)
+	cellKey := getCellKey(row, col)
 	return g.interactedCells[cellKey] // Returns false if key doesn't exist
 }
 
@@ -767,7 +767,7 @@ func (g *Grid) SetCellInteracted(row, col int, interacted bool) {
 		return // Cannot set state for invalid cell
 	}
 
-	cellKey := fmt.Sprintf("%d:%d", row, col)
+	cellKey := getCellKey(row, col)
 	currentState := g.interactedCells[cellKey]
 
 	// Only proceed if state needs changing
@@ -827,4 +827,10 @@ func (g *Grid) ClearInteractions() {
 		g.interactedCells = make(map[string]bool) // Reset the map
 		g.MarkDirty()                             // Need redraw if interactions cleared
 	}
+}
+
+// getCellKey generates cell key
+func getCellKey(row, col int) string {
+	// Use a delimiter that can't appear in integer string representation
+	return fmt.Sprintf("%d:%d", row, col)
 }
